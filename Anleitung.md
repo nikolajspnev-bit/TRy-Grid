@@ -35,6 +35,22 @@ Eine App, ein Code, läuft auf iPhone und Android.
 
 Mit kostenloser Apple ID läuft die App 7 Tage. Danach einfach Schritt 4 und 6 wiederholen.
 
+## Updates aufs iPhone holen
+
+**Einmalig:** Im Terminal
+```
+cd ~/Documents
+git clone https://github.com/nikolajspnev-bit/TRy-Grid.git
+```
+Dann in VS Code den Ordner **Dokumente/TRy-Grid** öffnen und einmal signieren (Teil 2, Schritt 3).
+
+**Bei jedem Update** (und wenn die App nach 7 Tagen abläuft): iPhone per Kabel dran, dann
+```
+git pull
+flutter run --release
+```
+Gespeicherte Collagen bleiben erhalten.
+
 ## Teil 3: Android App (gratis, ohne Android Studio)
 
 GitHub baut die App nach jedem Update automatisch. Du musst nichts installieren.
