@@ -14,10 +14,10 @@ Eine App, ein Code, läuft auf iPhone und Android.
 
 ## Teil 2: App aufs iPhone
 
-1. Die Datei **TRyCollage.zip** laden und entpacken (zum Beispiel in "Dokumente").
-2. In VS Code: **Datei > Ordner öffnen** und den Ordner **try_collage** wählen.
+1. Auf github.com/nikolajspnev-bit/TRy-Grid auf den grünen Knopf **Code > Download ZIP** tippen und die Datei entpacken (zum Beispiel in "Dokumente").
+2. In VS Code: **Datei > Ordner öffnen** und den Ordner **TRy-Grid-main** wählen.
 3. **Einmalig signieren:**
-   Im Finder in **try_collage/ios** die Datei **Runner.xcworkspace** doppelklicken. Xcode öffnet sich.
+   Im Finder in **TRy-Grid-main/ios** die Datei **Runner.xcworkspace** doppelklicken. Xcode öffnet sich.
    Links oben auf **Runner** klicken, dann oben den Reiter **Signing & Capabilities**.
    Bei **Team** auf **Add an Account** und mit deiner Apple ID anmelden. Danach bei Team deinen Namen wählen.
    Ist der Bundle Identifier rot, ändere ihn in etwas Eigenes, zum Beispiel `de.nikolajtry.collage`.
@@ -48,7 +48,7 @@ Mit kostenloser Apple ID läuft die App 7 Tage. Danach einfach Schritt 4 und 6 w
    ```
    flutter build apk
    ```
-4. Fertige Datei: **try_collage/build/app/outputs/flutter-apk/app-release.apk**
+4. Fertige Datei: **TRy-Grid-main/build/app/outputs/flutter-apk/app-release.apk**
    Die schickst du deinem Freund, zum Beispiel per WhatsApp, Mail oder Google Drive.
    Er tippt die Datei an und erlaubt einmal "Apps aus dieser Quelle installieren".
 
