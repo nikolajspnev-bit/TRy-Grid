@@ -15,12 +15,12 @@ class AppColors {
   static const accent = Color(0xFFE8702A);
 }
 
-/// Regler Knopf als flache Pille statt Kreis.
-class PillThumb extends SliderComponentShape {
-  const PillThumb();
+/// Regler Knopf als schmale Markierung (wie ein Schnittmarker).
+class MarkerThumb extends SliderComponentShape {
+  const MarkerThumb();
 
   @override
-  Size getPreferredSize(bool isEnabled, bool isDiscrete) => const Size(26, 16);
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) => const Size(8, 20);
 
   @override
   void paint(
@@ -37,17 +37,15 @@ class PillThumb extends SliderComponentShape {
     required double textScaleFactor,
     required Size sizeWithOverflow,
   }) {
-    final grow = 2 * activationAnimation.value;
+    final active = activationAnimation.value > 0.5;
     final r = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: center, width: 26 + grow, height: 16 + grow),
-      const Radius.circular(8),
+      Rect.fromCenter(center: center, width: active ? 5 : 4, height: active ? 22 : 18),
+      const Radius.circular(1),
     );
+    context.canvas.drawRRect(r.inflate(2), Paint()..color = AppColors.panel);
     context.canvas.drawRRect(
       r,
-      Paint()
-        ..color = activationAnimation.value > 0.5
-            ? AppColors.text
-            : AppColors.thumb,
+      Paint()..color = active ? AppColors.accent : AppColors.text,
     );
   }
 }
@@ -71,9 +69,9 @@ ThemeData buildTheme() {
     sliderTheme: base.sliderTheme.copyWith(
       activeTrackColor: AppColors.accent,
       inactiveTrackColor: AppColors.line,
-      thumbShape: const PillThumb(),
+      thumbShape: const MarkerThumb(),
       overlayShape: SliderComponentShape.noOverlay,
-      trackHeight: 2,
+      trackHeight: 1.5,
       tickMarkShape: SliderTickMarkShape.noTickMark,
       showValueIndicator: ShowValueIndicator.never,
     ),

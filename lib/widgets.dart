@@ -32,15 +32,12 @@ class RowSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final changed = value != min;
     return SizedBox(
       height: 40,
       child: Row(
         children: [
-          SizedBox(width: 92, child: Text(label, style: _label)),
-          SizedBox(
-            width: 30,
-            child: Text(display ?? '${value.round()}', style: _value),
-          ),
+          SizedBox(width: 84, child: Text(label, style: _label)),
           Expanded(
             child: Slider(
               value: value.clamp(min, max),
@@ -49,6 +46,14 @@ class RowSlider extends StatelessWidget {
               divisions: divisions,
               onChangeStart: onStart == null ? null : (_) => onStart!(),
               onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 34,
+            child: Text(
+              display ?? '${value.round()}',
+              textAlign: TextAlign.right,
+              style: _value.copyWith(color: changed ? AppColors.accent : AppColors.muted),
             ),
           ),
         ],
@@ -85,7 +90,7 @@ class StackSlider extends StatelessWidget {
             children: [
               Text(label, style: _label),
               const Spacer(),
-              Text('$value', style: _value),
+              Text('$value', style: _value.copyWith(color: AppColors.accent)),
             ],
           ),
         ),
@@ -122,50 +127,42 @@ class ModeTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        for (var i = 0; i < options.length; i++)
+        for (var i = 0; i < options.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => onChanged(i),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: i == selected ? AppColors.accent : AppColors.line,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          options[i].$2,
-                          size: 16,
-                          color: i == selected
-                              ? AppColors.text
-                              : AppColors.muted,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          options[i].$1,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: i == selected
-                                ? AppColors.text
-                                : AppColors.muted,
-                          ),
-                        ),
-                      ],
+                    Icon(
+                      options[i].$2,
+                      size: 15,
+                      color: i == selected ? AppColors.accent : AppColors.muted,
                     ),
-                    const SizedBox(height: 6),
-                    Container(
-                      width: 22,
-                      height: 2,
-                      color: i == selected
-                          ? AppColors.accent
-                          : Colors.transparent,
+                    const SizedBox(width: 8),
+                    Text(
+                      options[i].$1,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: i == selected ? AppColors.text : AppColors.muted,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
           ),
+        ],
       ],
     );
   }
@@ -190,7 +187,7 @@ class Segmented extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(7),
       ),
       child: Row(
         children: [
@@ -202,20 +199,15 @@ class Segmented extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    color: i == selected ? AppColors.line : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
+                    color: i == selected ? AppColors.panel : Colors.transparent,
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: i == selected ? AppColors.accent : Colors.transparent,
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (i == selected) ...[
-                        const Icon(
-                          Icons.check_circle,
-                          size: 14,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: 6),
-                      ],
                       Text(
                         options[i],
                         style: TextStyle(

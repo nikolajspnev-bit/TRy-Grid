@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'color_picker.dart';
 import 'crop.dart';
 import 'export.dart';
 import 'models.dart';
@@ -10,6 +11,8 @@ import 'theme.dart';
 import 'widgets.dart';
 
 enum PanelTab { design, fx, photos }
+
+enum FxKind { halation, mist, grain, vignette }
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.store});
@@ -35,6 +38,16 @@ class _EditorScreenState extends State<EditorScreen> {
   // "Halten für Original"
   bool original = false;
 
+  // Karussell: sichtbarer Ausschnitt (0 = ganz links, 1 = ganz rechts).
+  double viewFrac = 0;
+  bool scrolling = false;
+
+  // Geöffneter Effekt im FX Menü.
+  FxKind? fx;
+
+  // Ziel im FX Menü: null = alle Fotos, sonst Index des Feldes.
+  int? fxSlot;
+
   @override
   void initState() {
     super.initState();
@@ -52,13 +65,7 @@ class _EditorScreenState extends State<EditorScreen> {
             children: [
               _header(),
               Expanded(child: _stage()),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'Halten zum Tauschen · Tippen zum Zuschneiden',
-                  style: TextStyle(color: AppColors.muted, fontSize: 11),
-                ),
-              ),
+              _infoLine(),
               _panel(),
             ],
           ),
@@ -71,96 +78,262 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _header() {
     final d = store.design;
+    final canExport = store.hasPhotos;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 2, 6, 2),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
       child: Row(
         children: [
-          PopupMenuButton<AspectFormat>(
-            tooltip: 'Format',
-            color: AppColors.panel,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            offset: const Offset(0, 44),
-            onSelected: (f) => store.edit((d) => d.format = f),
-            itemBuilder: (_) => [
-              for (final f in AspectFormat.values)
-                PopupMenuItem(
-                  value: f,
-                  child: Row(
-                    children: [
-                      Icon(
-                        f == d.format
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
-                        size: 16,
-                        color: f == d.format
-                            ? AppColors.accent
-                            : AppColors.muted,
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${f.description} ${f.label}',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          Text(
-                            '${f.exportSize(uhd: true).width.round()} × ${f.exportSize(uhd: true).height.round()}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.all(8),
+          // Format als umrandeter Chip.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _formatSheet,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.line),
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(d.format.label, style: const TextStyle(fontSize: 15)),
+                  Text(d.formatLabel, style: const TextStyle(fontSize: 12)),
                   const SizedBox(width: 2),
-                  const Icon(Icons.expand_more, size: 18),
+                  const Icon(Icons.expand_more, size: 16, color: AppColors.muted),
                 ],
               ),
             ),
           ),
-          Expanded(
+          const Expanded(
+            child: Center(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: 'TRy', style: TextStyle(fontWeight: FontWeight.w500)),
+                    TextSpan(text: ' GRID', style: TextStyle(color: AppColors.muted, letterSpacing: 3)),
+                  ],
+                ),
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          ),
+          // Export als klarer Knopf in Orange.
+          GestureDetector(
+            onTap: canExport ? () => showExportSheet(context, store) : null,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
+              decoration: BoxDecoration(
+                color: canExport ? AppColors.accent : AppColors.line,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Export',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: canExport ? const Color(0xFF111111) : AppColors.muted,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.north_east,
+                    size: 14,
+                    color: canExport ? const Color(0xFF111111) : AppColors.muted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Zeile unter der Leinwand: Name (antippen zum Umbenennen) und Größe.
+  Widget _infoLine() {
+    final d = store.design;
+    final size = d.slideSize(uhd: false);
+    final px = '${size.width.round()} × ${size.height.round()}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
+      child: Row(
+        children: [
+          Flexible(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: _rename,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Flexible(
                     child: Text(
                       store.title,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: 11),
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Icon(Icons.edit, size: 13, color: AppColors.muted),
+                  const Icon(Icons.edit, size: 11, color: AppColors.muted),
                 ],
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Exportieren',
-            onPressed: store.hasPhotos
-                ? () => showExportSheet(context, store)
-                : null,
-            icon: const Icon(Icons.north_east, size: 26),
-            color: AppColors.accent,
-            disabledColor: AppColors.line,
+          const Spacer(),
+          Text(
+            d.carousel ? '${d.slides} Slides · $px' : px,
+            style: const TextStyle(fontSize: 11, color: AppColors.muted, letterSpacing: 0.5),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Auswahl: Collage (ein Bild) oder Karussell (mehrere Slides für Instagram).
+  Future<void> _formatSheet() {
+    return showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (ctx) => ListenableBuilder(
+        listenable: store,
+        builder: (ctx, _) {
+          final d = store.design;
+          Widget option(
+            AspectFormat f,
+            bool selected,
+            VoidCallback onTap, {
+            String? size,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
+                color: selected ? AppColors.line : AppColors.background,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: onTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 26,
+                          child: Center(
+                            child: Container(
+                              width: f.ratio >= 1 ? 22 : 22 * f.ratio,
+                              height: f.ratio >= 1 ? 22 / f.ratio : 22,
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: selected ? AppColors.accent : AppColors.muted,
+                                ),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${f.description} ${f.label}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            if (size != null)
+                              Text(
+                                size,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const Spacer(),
+                        if (selected)
+                          const Icon(
+                            Icons.circle,
+                            size: 8,
+                            color: AppColors.accent,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          String px(Size s) => '${s.width.round()} × ${s.height.round()}';
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Segmented(
+                    options: const ['Collage', 'Karussell'],
+                    selected: d.carousel ? 1 : 0,
+                    onChanged: (i) => store.edit((d) {
+                      final toCarousel = i == 1;
+                      if (toCarousel == d.carousel) return;
+                      d.carousel = toCarousel;
+                      if (toCarousel) {
+                        // Guter Start: Bento, das über die Slides läuft.
+                        d.mode = LayoutMode.bento;
+                        if (d.frames < d.slides + 1) d.frames = d.slides + 1;
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!d.carousel)
+                    for (final f in AspectFormat.values)
+                      option(
+                        f,
+                        f == d.format,
+                        () => store.edit((d) => d.format = f),
+                        size: px(f.exportSize(uhd: true)),
+                      )
+                  else ...[
+                    const Text(
+                      'Eine Collage über mehrere Slides. Beim Wischen auf Instagram läuft sie nahtlos weiter.',
+                      style: TextStyle(fontSize: 11, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final f in kSlideFormats)
+                      option(
+                        f,
+                        f == d.slideFormat,
+                        () => store.edit((d) => d.slideFormat = f),
+                        size: 'je Slide ${px(f.exportSize(uhd: false))}',
+                      ),
+                    const SizedBox(height: 6),
+                    RowSlider(
+                      label: 'Slides',
+                      value: d.slides.toDouble(),
+                      min: 2,
+                      max: 10,
+                      divisions: 8,
+                      onStart: store.checkpoint,
+                      onChanged: (v) => store.edit(
+                        (d) => d.slides = v.round(),
+                        record: false,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -202,43 +375,68 @@ class _EditorScreenState extends State<EditorScreen> {
     return LayoutBuilder(
       builder: (context, c) {
         const pad = 14.0;
-        var w = c.maxWidth - pad * 2;
-        var h = w / d.format.ratio;
-        if (h > c.maxHeight - pad) {
-          h = c.maxHeight - pad;
-          w = h * d.format.ratio;
+        const stripGap = 10.0;
+        final availW = c.maxWidth - pad * 2;
+        var availH = c.maxHeight - pad - 6;
+        double h, fullW;
+
+        if (!d.carousel) {
+          fullW = availW;
+          h = fullW / d.canvasRatio;
+          if (h > availH) {
+            h = availH;
+            fullW = h * d.canvasRatio;
+          }
+        } else {
+          // Karussell: große Ansicht mit Ausschnitt, darunter eine kleine Übersicht.
+          availH -= 44 + stripGap;
+          h = availH;
+          final slideW = h * d.slideFormat.ratio;
+          if (slideW > availW * 0.82) h = availW * 0.82 / d.slideFormat.ratio;
+          fullW = h * d.canvasRatio;
         }
-        final size = Size(w, h);
-        final unit = w / 400;
+        final viewW = fullW < availW ? fullW : availW;
+        final maxScroll = fullW - viewW;
+        final scrollX = maxScroll <= 0
+            ? 0.0
+            : viewFrac.clamp(0.0, 1.0) * maxScroll;
+
+        final full = Size(fullW, h);
+        final unit = fullW / 400 / (d.carousel ? d.slides : 1);
         final border = d.border * unit;
         final frames = cellFrames(
           d.normalizedRects,
-          size,
+          full,
           border,
           d.spacing * unit,
         );
-        final innerW = w - 2 * border, innerH = h - 2 * border;
+        final innerW = fullW - 2 * border, innerH = h - 2 * border;
+
+        // Fingerposition in Leinwand Koordinaten (berücksichtigt den Ausschnitt).
+        Offset toCanvas(Offset p) => p + Offset(scrollX, 0);
 
         int? hit(Offset p) {
+          final q = toCanvas(p);
           for (var i = 0; i < frames.length; i++) {
-            if (frames[i].contains(p)) return i;
+            if (frames[i].contains(q)) return i;
           }
           return null;
         }
 
         // Nächste Trennlinie unter dem Finger (max. 22 px entfernt).
         Seam? seamAt(Offset p) {
+          final q = toCanvas(p);
           Seam? best;
           var bestDist = 22.0;
           for (final s in findSeams(d.normalizedRects)) {
-            final cs = seamOnCanvas(s, size, border);
-            final along = s.vertical ? p.dy : p.dx;
+            final cs = seamOnCanvas(s, full, border);
+            final along = s.vertical ? q.dy : q.dx;
             final lo = s.vertical ? cs.a.dy : cs.a.dx;
             final hi = s.vertical ? cs.b.dy : cs.b.dx;
             if (along < lo || along > hi) continue;
             final dist = s.vertical
-                ? (p.dx - cs.a.dx).abs()
-                : (p.dy - cs.a.dy).abs();
+                ? (q.dx - cs.a.dx).abs()
+                : (q.dy - cs.a.dy).abs();
             if (dist < bestDist) {
               bestDist = dist;
               best = s;
@@ -247,82 +445,129 @@ class _EditorScreenState extends State<EditorScreen> {
           return best;
         }
 
+        final canvas = GestureDetector(
+          onPanStart: (e) {
+            final s = seamAt(e.localPosition);
+            if (s == null) {
+              scrolling = maxScroll > 0;
+              return;
+            }
+            store.checkpoint();
+            HapticFeedback.selectionClick();
+            setState(() {
+              seam = s;
+              seamBase = List.of(d.normalizedRects);
+              seamDelta = 0;
+            });
+          },
+          onPanUpdate: (e) {
+            final s = seam;
+            if (s == null) {
+              // Im Karussell: mit dem Finger durch die Slides schieben.
+              if (scrolling && maxScroll > 0) {
+                setState(
+                  () => viewFrac = (viewFrac - e.delta.dx / maxScroll).clamp(
+                    0.0,
+                    1.0,
+                  ),
+                );
+              }
+              return;
+            }
+            if (innerW <= 0 || innerH <= 0) return;
+            seamDelta += s.vertical ? e.delta.dx / innerW : e.delta.dy / innerH;
+            store.edit(
+              (d) => d.customRects = moveSeam(seamBase, s, seamDelta),
+              record: false,
+            );
+          },
+          onPanEnd: (_) => setState(() {
+            seam = null;
+            scrolling = false;
+          }),
+          onPanCancel: () => setState(() {
+            seam = null;
+            scrolling = false;
+          }),
+          onTapUp: (e) {
+            final i = hit(e.localPosition);
+            if (i != null) _openSlot(i);
+          },
+          onLongPressStart: (e) {
+            final i = hit(e.localPosition);
+            if (i == null || d.slots[i] == null) return;
+            HapticFeedback.mediumImpact();
+            setState(() {
+              dragFrom = i;
+              dragTarget = i;
+            });
+          },
+          onLongPressMoveUpdate: (e) {
+            if (dragFrom == null) return;
+            final i = hit(e.localPosition);
+            if (i != dragTarget) {
+              if (i != null) HapticFeedback.selectionClick();
+              setState(() => dragTarget = i);
+            }
+          },
+          onLongPressEnd: (_) {
+            final from = dragFrom;
+            final to = dragTarget;
+            setState(() {
+              dragFrom = null;
+              dragTarget = null;
+            });
+            if (from != null && to != null) store.swap(from, to);
+          },
+          child: CustomPaint(
+            size: Size(viewW, h),
+            painter: CollagePainter(
+              d,
+              fullSize: full,
+              scrollX: scrollX,
+              dragFrom: dragFrom,
+              dragTarget: dragTarget,
+              original: original,
+              activeSeam: seam == null
+                  ? null
+                  : Seam(
+                      vertical: seam!.vertical,
+                      pos: seam!.pos + seamDelta,
+                      start: seam!.start,
+                      end: seam!.end,
+                    ),
+            ),
+          ),
+        );
+
+        // Sucher Ecken um die Leinwand (Fotografen Look).
+        final framed = SizedBox(
+          width: viewW + 16,
+          height: h + 16,
+          child: Stack(
+            children: [
+              Center(child: canvas),
+              const Positioned.fill(
+                child: IgnorePointer(child: CustomPaint(painter: _Brackets())),
+              ),
+            ],
+          ),
+        );
+
         return Stack(
           alignment: Alignment.center,
           children: [
-            GestureDetector(
-              onPanStart: (e) {
-                final s = seamAt(e.localPosition);
-                if (s == null) return;
-                store.checkpoint();
-                HapticFeedback.selectionClick();
-                setState(() {
-                  seam = s;
-                  seamBase = List.of(d.normalizedRects);
-                  seamDelta = 0;
-                });
-              },
-              onPanUpdate: (e) {
-                final s = seam;
-                if (s == null || innerW <= 0 || innerH <= 0) return;
-                seamDelta += s.vertical
-                    ? e.delta.dx / innerW
-                    : e.delta.dy / innerH;
-                store.edit(
-                  (d) => d.customRects = moveSeam(seamBase, s, seamDelta),
-                  record: false,
-                );
-              },
-              onPanEnd: (_) => setState(() => seam = null),
-              onPanCancel: () => setState(() => seam = null),
-              onTapUp: (e) {
-                final i = hit(e.localPosition);
-                if (i != null) _openSlot(i);
-              },
-              onLongPressStart: (e) {
-                final i = hit(e.localPosition);
-                if (i == null || d.slots[i] == null) return;
-                HapticFeedback.mediumImpact();
-                setState(() {
-                  dragFrom = i;
-                  dragTarget = i;
-                });
-              },
-              onLongPressMoveUpdate: (e) {
-                if (dragFrom == null) return;
-                final i = hit(e.localPosition);
-                if (i != dragTarget) {
-                  if (i != null) HapticFeedback.selectionClick();
-                  setState(() => dragTarget = i);
-                }
-              },
-              onLongPressEnd: (_) {
-                final from = dragFrom;
-                final to = dragTarget;
-                setState(() {
-                  dragFrom = null;
-                  dragTarget = null;
-                });
-                if (from != null && to != null) store.swap(from, to);
-              },
-              child: CustomPaint(
-                size: size,
-                painter: CollagePainter(
-                  d,
-                  dragFrom: dragFrom,
-                  dragTarget: dragTarget,
-                  original: original,
-                  activeSeam: seam == null
-                      ? null
-                      : Seam(
-                          vertical: seam!.vertical,
-                          pos: seam!.pos + seamDelta,
-                          start: seam!.start,
-                          end: seam!.end,
-                        ),
-                ),
+            if (!d.carousel)
+              framed
+            else
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  framed,
+                  const SizedBox(height: stripGap),
+                  _strip(availW, fullW, viewW, scrollX),
+                ],
               ),
-            ),
             if (store.loading)
               const SizedBox(
                 width: 22,
@@ -338,16 +583,66 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  /// Kleine Übersicht über alle Slides. Antippen oder ziehen springt dorthin.
+  Widget _strip(double availW, double fullW, double viewW, double scrollX) {
+    final d = store.design;
+    var sh = 44.0;
+    var sw = sh * d.canvasRatio;
+    if (sw > availW) {
+      sw = availW;
+      sh = sw / d.canvasRatio;
+    }
+    final scale = sw / fullW;
+    final maxScroll = fullW - viewW;
+
+    void jump(double x) {
+      if (maxScroll <= 0) return;
+      final center = x / scale;
+      setState(
+        () => viewFrac = ((center - viewW / 2) / maxScroll).clamp(0.0, 1.0),
+      );
+    }
+
+    return GestureDetector(
+      onTapDown: (e) => jump(e.localPosition.dx),
+      onHorizontalDragUpdate: (e) => jump(e.localPosition.dx),
+      child: SizedBox(
+        width: sw,
+        height: sh,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(painter: CollagePainter(d, mini: true)),
+            ),
+            Positioned(
+              left: scrollX * scale,
+              top: 0,
+              width: viewW * scale,
+              height: sh,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.accent, width: 1.5),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSlot(int i) async {
     final slot = store.design.slots[i];
     if (slot == null) {
-      await store.pickPhotos(intoSlot: i);
+      // Leeres Feld: mehrere Fotos auf einmal, beginnend bei diesem Feld.
+      await store.pickPhotos(startAt: i);
       return;
     }
     final d = store.design;
     // Seitenverhältnis des Feldes auf einer Referenzleinwand berechnen.
-    final ref = Size(1000, 1000 / d.format.ratio);
-    final unit = ref.width / 400;
+    final ref = Size(1000, 1000 / d.canvasRatio);
+    final unit = ref.width / 400 / (d.carousel ? d.slides : 1);
     final f = cellFrames(
       d.normalizedRects,
       ref,
@@ -384,23 +679,20 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _panel() {
     final bottom = MediaQuery.of(context).padding.bottom;
-    const titles = {
-      PanelTab.design: 'Design',
-      PanelTab.fx: 'FX',
-      PanelTab.photos: 'Fotos',
-    };
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.panel,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(top: BorderSide(color: AppColors.line)),
       ),
-      padding: EdgeInsets.fromLTRB(18, 6, 14, bottom),
+      padding: EdgeInsets.fromLTRB(18, 0, 14, bottom + 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Text(titles[tab]!, style: const TextStyle(fontSize: 14)),
+              _tabButton(PanelTab.design, 'Layout'),
+              _tabButton(PanelTab.fx, 'Look'),
+              _tabButton(PanelTab.photos, 'Fotos'),
               const Spacer(),
               if (tab == PanelTab.design && store.design.hasCustomLayout)
                 _iconButton(
@@ -420,8 +712,9 @@ class _EditorScreenState extends State<EditorScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 6),
           SizedBox(
-            height: 232,
+            height: 250,
             child: SingleChildScrollView(
               padding: const EdgeInsets.only(right: 4),
               child: switch (tab) {
@@ -430,14 +723,6 @@ class _EditorScreenState extends State<EditorScreen> {
                 PanelTab.photos => _photosTab(),
               },
             ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _tabButton(PanelTab.design, Icons.grid_view),
-              _tabButton(PanelTab.fx, Icons.auto_awesome_outlined),
-              _tabButton(PanelTab.photos, Icons.photo_library_outlined),
-            ],
           ),
         ],
       ),
@@ -448,19 +733,37 @@ class _EditorScreenState extends State<EditorScreen> {
     return IconButton(
       tooltip: tip,
       onPressed: onTap,
-      icon: Icon(icon, size: 20),
+      icon: Icon(icon, size: 19),
       color: AppColors.text,
       disabledColor: AppColors.line,
       visualDensity: VisualDensity.compact,
     );
   }
 
-  Widget _tabButton(PanelTab t, IconData icon) {
+  /// Reiter als Text oben im Bedienfeld, aktiver Reiter mit oranger Linie.
+  Widget _tabButton(PanelTab t, String label) {
     final active = tab == t;
-    return IconButton(
-      onPressed: () => setState(() => tab = t),
-      icon: Icon(icon, size: 24),
-      color: active ? AppColors.text : AppColors.muted,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => tab = t),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(0, 14, 0, 10),
+        margin: const EdgeInsets.only(right: 22),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: active ? AppColors.accent : Colors.transparent, width: 2),
+          ),
+        ),
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            letterSpacing: 1.6,
+            fontWeight: active ? FontWeight.w500 : FontWeight.w400,
+            color: active ? AppColors.text : AppColors.muted,
+          ),
+        ),
+      ),
     );
   }
 
@@ -558,8 +861,29 @@ class _EditorScreenState extends State<EditorScreen> {
       Colors.white,
       Color(0xFFECE8E1),
       AppColors.accent,
-      Color(0xFF6B4F3A),
     ];
+    final custom = !swatches.contains(d.background);
+
+    Widget dot({required Widget child, required bool selected, required VoidCallback onTap, Key? key}) {
+      return GestureDetector(
+        key: key,
+        onTap: onTap,
+        child: Container(
+          width: 26,
+          height: 26,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? AppColors.accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: ClipOval(child: child),
+        ),
+      );
+    }
+
     return SizedBox(
       height: 44,
       child: Row(
@@ -573,23 +897,47 @@ class _EditorScreenState extends State<EditorScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 for (final c in swatches)
-                  GestureDetector(
+                  dot(
+                    selected: d.background == c,
                     onTap: () => store.edit((d) => d.background = c),
-                    child: Container(
-                      width: 24,
-                      height: 24,
+                    child: DecoratedBox(
                       decoration: BoxDecoration(
                         color: c,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: d.background == c
-                              ? AppColors.accent
-                              : AppColors.line,
-                          width: d.background == c ? 2 : 1,
-                        ),
+                        border: Border.all(color: AppColors.line),
                       ),
                     ),
                   ),
+                // Farbrad: eigene Farbe oder HEX Code.
+                dot(
+                  selected: custom,
+                  onTap: () async {
+                    final c = await showColorPicker(context, d.background);
+                    if (c != null) store.edit((d) => d.background = c);
+                  },
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: SweepGradient(
+                            colors: [
+                              for (var h = 0; h <= 360; h += 60) HSVColor.fromAHSV(1, h % 360, 0.85, 1).toColor(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (custom)
+                        Padding(
+                          padding: const EdgeInsets.all(5),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(color: d.background, shape: BoxShape.circle),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -598,106 +946,332 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  // FX: Liste der Effekte. Antippen öffnet die Einstellungen.
+
   Widget _fxTab() {
-    final look = store.design.look;
-    String pct(double v) => '${(v * 100).round()}';
+    final kind = fx;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 4),
-        RowSlider(
-          label: 'Halation',
-          value: look.halation * 100,
-          max: 100,
-          display: pct(look.halation),
-          onStart: store.checkpoint,
-          onChanged: (v) =>
-              store.edit((d) => d.look.halation = v / 100, record: false),
+        _fxTargets(),
+        const SizedBox(height: 8),
+        if (kind == null) ..._fxList() else ..._fxDetail(kind),
+        const SizedBox(height: 8),
+        _holdOriginal(),
+      ],
+    );
+  }
+
+  /// Gilt das Feld noch? Sonst zurück auf "Alle".
+  int? get _target {
+    final i = fxSlot;
+    final d = store.design;
+    if (i == null || i >= d.visibleCount || d.slots[i] == null) return null;
+    return i;
+  }
+
+  /// Look, der gerade bearbeitet wird (für die Anzeige).
+  FilmLook get _shownLook {
+    final i = _target;
+    final d = store.design;
+    return i == null ? d.look : (d.slots[i]!.look ?? d.look);
+  }
+
+  /// Look zum Ändern. Ein Foto bekommt beim ersten Ändern eine eigene Kopie.
+  FilmLook _editLook(Design d) {
+    final i = _target;
+    if (i == null) return d.look;
+    final slot = d.slots[i]!;
+    return slot.look ??= d.look.copy();
+  }
+
+  /// Zeile oben: "Alle" und kleine Vorschauen der Fotos.
+  Widget _fxTargets() {
+    final d = store.design;
+    final target = _target;
+    final filled = [
+      for (var i = 0; i < d.visibleCount; i++)
+        if (d.slots[i] != null) i,
+    ];
+
+    Widget chip({required bool selected, required VoidCallback onTap, required Widget child, Key? key}) {
+      return GestureDetector(
+        key: key,
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: selected ? AppColors.accent : AppColors.line, width: selected ? 2 : 1),
+          ),
+          child: ClipRRect(borderRadius: BorderRadius.circular(7), child: child),
         ),
-        RowSlider(
-          label: 'Black Mist',
-          value: look.mist * 100,
-          max: 100,
-          display: pct(look.mist),
-          onStart: store.checkpoint,
-          onChanged: (v) =>
-              store.edit((d) => d.look.mist = v / 100, record: false),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              chip(
+                selected: target == null,
+                onTap: () => setState(() => fxSlot = null),
+                child: const Center(child: Text('Alle', style: TextStyle(fontSize: 11))),
+              ),
+              for (final i in filled)
+                chip(
+                  selected: target == i,
+                  onTap: () => setState(() => fxSlot = i),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      RawImage(image: d.slots[i]!.photo.preview, fit: BoxFit.cover),
+                      // Punkt: dieses Foto hat einen eigenen Look.
+                      if (d.slots[i]!.look != null)
+                        const Positioned(
+                          right: 3,
+                          top: 3,
+                          child: Icon(Icons.circle, size: 7, color: AppColors.accent),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
-        RowSlider(
-          label: 'Körnung',
-          value: look.grain * 100,
-          max: 100,
-          display: pct(look.grain),
-          onStart: store.checkpoint,
-          onChanged: (v) =>
-              store.edit((d) => d.look.grain = v / 100, record: false),
-        ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Row(
           children: [
-            Expanded(
-              child: GestureDetector(
-                onTapDown: (_) => setState(() => original = true),
-                onTapUp: (_) => setState(() => original = false),
-                onTapCancel: () => setState(() => original = false),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  decoration: BoxDecoration(
-                    color: original ? AppColors.line : AppColors.background,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.compare, size: 16, color: AppColors.text),
-                      SizedBox(width: 8),
-                      Text('Halten: Original', style: TextStyle(fontSize: 13)),
-                    ],
-                  ),
-                ),
-              ),
+            Text(
+              target == null
+                  ? 'Gilt für alle Fotos'
+                  : d.slots[target]!.look == null
+                      ? 'Foto ${(target + 1).toString().padLeft(2, '0')} · wie alle'
+                      : 'Foto ${(target + 1).toString().padLeft(2, '0')} · eigener Look',
+              style: const TextStyle(fontSize: 11, color: AppColors.muted),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: GestureDetector(
-                onTap: look.active
-                    ? () => store.edit((d) => d.look = FilmLook())
-                    : null,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.restart_alt,
-                        size: 16,
-                        color: look.active ? AppColors.text : AppColors.line,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Zurücksetzen',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: look.active ? AppColors.text : AppColors.line,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            const Spacer(),
+            if (target != null && d.slots[target]!.look != null)
+              GestureDetector(
+                onTap: () => store.edit((d) => d.slots[target]!.look = null),
+                child: const Text('Wie alle', style: TextStyle(fontSize: 11, color: AppColors.accent)),
               ),
-            ),
           ],
         ),
-        const SizedBox(height: 10),
-        const Text(
-          'Wirkt auf alle Fotos.',
-          style: TextStyle(fontSize: 11, color: AppColors.muted),
-        ),
       ],
+    );
+  }
+
+  String _fxName(FxKind k) => switch (k) {
+    FxKind.halation => 'Halation',
+    FxKind.mist => 'Black Mist',
+    FxKind.grain => 'Körnung',
+    FxKind.vignette => 'Vignette',
+  };
+
+  IconData _fxIcon(FxKind k) => switch (k) {
+    FxKind.halation => Icons.wb_sunny_outlined,
+    FxKind.mist => Icons.blur_on,
+    FxKind.grain => Icons.grain,
+    FxKind.vignette => Icons.vignette_outlined,
+  };
+
+  (bool, double) _fxState(FxKind k) {
+    final l = _shownLook;
+    return switch (k) {
+      FxKind.halation => (l.halOn, l.halAmount),
+      FxKind.mist => (l.mistOn, l.mistAmount),
+      FxKind.grain => (l.grainOn, l.grainAmount),
+      FxKind.vignette => (l.vigOn, l.vigAmount),
+    };
+  }
+
+  List<Widget> _fxList() {
+    return [
+      for (final k in FxKind.values)
+        Builder(
+          builder: (context) {
+            final (on, amount) = _fxState(k);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => setState(() => fx = k),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 11,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _fxIcon(k),
+                          size: 17,
+                          color: on ? AppColors.accent : AppColors.muted,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(_fxName(k), style: const TextStyle(fontSize: 13)),
+                        const Spacer(),
+                        Text(
+                          on ? '${(amount * 100).round()} %' : 'Aus',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.chevron_right,
+                          size: 18,
+                          color: AppColors.muted,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+    ];
+  }
+
+  List<Widget> _fxDetail(FxKind k) {
+    final l = _shownLook;
+    final (on, _) = _fxState(k);
+
+    // Regler ändern schaltet den Effekt automatisch ein.
+    Widget slider(
+      String label,
+      double value,
+      void Function(FilmLook l, double v) set,
+    ) {
+      return RowSlider(
+        label: label,
+        value: value * 100,
+        max: 100,
+        display: '${(value * 100).round()}',
+        onStart: store.checkpoint,
+        onChanged: (v) => store.edit((d) {
+          final look = _editLook(d);
+          set(look, v / 100);
+          switch (k) {
+            case FxKind.halation:
+              look.halOn = true;
+            case FxKind.mist:
+              look.mistOn = true;
+            case FxKind.grain:
+              look.grainOn = true;
+            case FxKind.vignette:
+              look.vigOn = true;
+          }
+        }, record: false),
+      );
+    }
+
+    void toggle(bool v) => store.edit((d) {
+      final look = _editLook(d);
+      switch (k) {
+        case FxKind.halation:
+          look.halOn = v;
+        case FxKind.mist:
+          look.mistOn = v;
+        case FxKind.grain:
+          look.grainOn = v;
+        case FxKind.vignette:
+          look.vigOn = v;
+      }
+    });
+
+    return [
+      Row(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => fx = null),
+            child: const Padding(
+              padding: EdgeInsets.fromLTRB(0, 6, 10, 6),
+              child: Icon(Icons.chevron_left, size: 22),
+            ),
+          ),
+          Text(_fxName(k), style: const TextStyle(fontSize: 14)),
+          const Spacer(),
+          Text(
+            on ? 'Aktiv' : 'Aus',
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
+          const SizedBox(width: 8),
+          Transform.scale(
+            scale: 0.8,
+            child: Switch(
+              value: on,
+              onChanged: toggle,
+              activeTrackColor: AppColors.accent,
+              activeThumbColor: AppColors.text,
+              inactiveTrackColor: AppColors.line,
+              inactiveThumbColor: AppColors.muted,
+              trackOutlineColor: const WidgetStatePropertyAll(
+                Colors.transparent,
+              ),
+            ),
+          ),
+        ],
+      ),
+      ...switch (k) {
+        FxKind.halation => [
+          slider('Stärke', l.halAmount, (l, v) => l.halAmount = v),
+          slider('Radius', l.halRadius, (l, v) => l.halRadius = v),
+          slider('Schwelle', l.halThreshold, (l, v) => l.halThreshold = v),
+          slider('Wärme', l.halWarmth, (l, v) => l.halWarmth = v),
+        ],
+        FxKind.mist => [
+          slider('Stärke', l.mistAmount, (l, v) => l.mistAmount = v),
+          slider('Weichheit', l.mistSoftness, (l, v) => l.mistSoftness = v),
+          slider('Schatten', l.mistLift, (l, v) => l.mistLift = v),
+        ],
+        FxKind.grain => [
+          slider('Menge', l.grainAmount, (l, v) => l.grainAmount = v),
+          slider('Größe', l.grainSize, (l, v) => l.grainSize = v),
+          slider('Farbanteil', l.grainColor, (l, v) => l.grainColor = v),
+        ],
+        FxKind.vignette => [
+          slider('Stärke', l.vigAmount, (l, v) => l.vigAmount = v),
+          slider('Weichheit', l.vigSoftness, (l, v) => l.vigSoftness = v),
+        ],
+      },
+    ];
+  }
+
+  Widget _holdOriginal() {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => original = true),
+      onTapUp: (_) => setState(() => original = false),
+      onTapCancel: () => setState(() => original = false),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: original ? AppColors.line : AppColors.background,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.compare, size: 16, color: AppColors.text),
+            SizedBox(width: 8),
+            Text('Halten: Original', style: TextStyle(fontSize: 13)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -724,10 +1298,43 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Fotos landen in freien Feldern. Bei Bedarf kommen neue Felder dazu (max. 12).',
+          'Fotos landen in freien Feldern, bei Bedarf kommen neue dazu (max. 12). '
+          'Leeres Feld antippen: mehrere Fotos ab dort. Foto halten: tauschen. Foto antippen: zuschneiden.',
           style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),
       ],
     );
   }
+}
+
+/// Vier Ecken wie im Sucher einer Kamera.
+class _Brackets extends CustomPainter {
+  const _Brackets();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const len = 12.0;
+    final p = Paint()
+      ..color = AppColors.muted
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    final w = size.width, h = size.height;
+    for (final (x, y, dx, dy) in [
+      (0.0, 0.0, 1.0, 1.0),
+      (w, 0.0, -1.0, 1.0),
+      (0.0, h, 1.0, -1.0),
+      (w, h, -1.0, -1.0),
+    ]) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(x, y + dy * len)
+          ..lineTo(x, y)
+          ..lineTo(x + dx * len, y),
+        p,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_Brackets oldDelegate) => false;
 }

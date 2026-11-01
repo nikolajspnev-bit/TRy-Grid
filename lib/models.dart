@@ -11,7 +11,7 @@ const int kMaxSlots = 12;
 enum AspectFormat {
   story('9:16', 'Story', 9 / 16),
   portrait('4:5', 'Feed hoch', 4 / 5),
-  classic('3:4', 'Instagram 3:4', 3 / 4),
+  classic('3:4', 'Instagram', 3 / 4),
   photo('2:3', 'Foto', 2 / 3),
   square('1:1', 'Quadrat', 1),
   landscape('1.91:1', 'Quer', 1.91),
@@ -37,19 +37,56 @@ enum AspectFormat {
   }
 }
 
-/// Film Look für alle Fotos. Werte 0 bis 1.
+/// Film Look für alle Fotos. Jeder Effekt lässt sich ein- und ausschalten,
+/// alle Werte gehen von 0 bis 1 (angelehnt an das TRy Film Look Plugin).
 class FilmLook {
-  double halation = 0;
-  double mist = 0;
-  double grain = 0;
+  bool halOn = false;
+  double halAmount = 0.7;
+  double halRadius = 0.45;
+  double halThreshold = 0.4;
+  double halWarmth = 0.5;
 
-  bool get active => halation > 0 || mist > 0 || grain > 0;
+  bool mistOn = false;
+  double mistAmount = 0.4;
+  double mistSoftness = 0.5;
+  double mistLift = 0.3;
+
+  bool grainOn = false;
+  double grainAmount = 0.35;
+  double grainSize = 0.3;
+  double grainColor = 0.15;
+
+  bool vigOn = false;
+  double vigAmount = 0.4;
+  double vigSoftness = 0.6;
+
+  bool get active => halOn || mistOn || grainOn || vigOn;
 
   FilmLook copy() => FilmLook()
-    ..halation = halation
-    ..mist = mist
-    ..grain = grain;
+    ..halOn = halOn
+    ..halAmount = halAmount
+    ..halRadius = halRadius
+    ..halThreshold = halThreshold
+    ..halWarmth = halWarmth
+    ..mistOn = mistOn
+    ..mistAmount = mistAmount
+    ..mistSoftness = mistSoftness
+    ..mistLift = mistLift
+    ..grainOn = grainOn
+    ..grainAmount = grainAmount
+    ..grainSize = grainSize
+    ..grainColor = grainColor
+    ..vigOn = vigOn
+    ..vigAmount = vigAmount
+    ..vigSoftness = vigSoftness;
 }
+
+/// Formate, die im Karussell als einzelne Slide möglich sind.
+const kSlideFormats = [
+  AspectFormat.portrait,
+  AspectFormat.classic,
+  AspectFormat.square,
+];
 
 enum LayoutMode { grid, bento }
 
@@ -76,7 +113,10 @@ class Slot {
   double offsetX;
   double offsetY;
 
-  Slot copy() => Slot(photo, zoom: zoom, offsetX: offsetX, offsetY: offsetY);
+  /// Eigener Film Look nur für dieses Foto. null = Look von "Alle".
+  FilmLook? look;
+
+  Slot copy() => Slot(photo, zoom: zoom, offsetX: offsetX, offsetY: offsetY)..look = look?.copy();
 }
 
 /// Der komplette Zustand einer Collage.
@@ -86,6 +126,11 @@ class Design {
   int frames = 4;
   int columns = 2;
   int bentoSeed = 1;
+
+  /// Karussell: mehrere Slides nebeneinander, die Collage läuft über alle.
+  bool carousel = false;
+  int slides = 3;
+  AspectFormat slideFormat = AspectFormat.portrait;
   FilmLook look = FilmLook();
 
   /// Rand, Ecken und Abstand in Einheiten von Leinwandbreite / 400.
@@ -101,7 +146,7 @@ class Design {
   String? _customKey;
 
   String get _layoutKey => mode == LayoutMode.bento
-      ? 'b$frames-$bentoSeed-${format.name}'
+      ? 'b$frames-$bentoSeed-${canvasRatio.toStringAsFixed(3)}'
       : 'g$frames-$columns';
 
   bool get hasCustomLayout => _custom != null && _customKey == _layoutKey;
@@ -117,6 +162,9 @@ class Design {
     ..frames = frames
     ..columns = columns
     ..bentoSeed = bentoSeed
+    ..carousel = carousel
+    ..slides = slides
+    ..slideFormat = slideFormat
     ..look = look.copy()
     ..border = border
     ..corners = corners
@@ -130,12 +178,29 @@ class Design {
   List<Rect> get normalizedRects {
     if (hasCustomLayout) return _custom!;
     if (mode == LayoutMode.bento) {
-      return bentoRects(frames, bentoSeed, format.ratio);
+      return bentoRects(frames, bentoSeed, canvasRatio);
     }
     return gridRects(frames, columns);
   }
 
   int get visibleCount => normalizedRects.length;
+
+  /// Seitenverhältnis der ganzen Leinwand (im Karussell: alle Slides zusammen).
+  double get canvasRatio =>
+      carousel ? slideFormat.ratio * slides : format.ratio;
+
+  /// Größe einer einzelnen Export Datei.
+  Size slideSize({required bool uhd}) =>
+      (carousel ? slideFormat : format).exportSize(uhd: uhd);
+
+  /// Größe der ganzen Leinwand im Export.
+  Size canvasSize({required bool uhd}) {
+    final s = slideSize(uhd: uhd);
+    return carousel ? Size(s.width * slides, s.height) : s;
+  }
+
+  String get formatLabel =>
+      carousel ? '$slides× ${slideFormat.label}' : format.label;
 }
 
 /// Bento: teilt zufällig (aber wiederholbar über [seed]) immer das

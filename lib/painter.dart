@@ -8,26 +8,32 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'theme.dart';
 
-/// Kachel mit Filmkorn, wird einmal beim Start erzeugt.
-ui.Image? _grainTile;
+/// Kacheln mit Filmkorn (grau und farbig), werden einmal beim Start erzeugt.
+ui.Image? _grainMono;
+ui.Image? _grainColor;
 
-Future<void> prepareGrain() async {
-  if (_grainTile != null) return;
+Future<ui.Image> _noiseTile({required bool color, required int seed}) {
   const n = 256;
-  final rnd = math.Random(7);
+  final rnd = math.Random(seed);
+  double g() =>
+      (rnd.nextDouble() + rnd.nextDouble() + rnd.nextDouble()) / 3 - 0.5;
+  int v(double x) => (128 + x * 2 * 110).round().clamp(0, 255);
   final px = Uint8List(n * n * 4);
   for (var i = 0; i < n * n; i++) {
-    // Summe aus drei Zufallswerten ergibt weiches, natürliches Rauschen um Mittelgrau.
-    final g = (rnd.nextDouble() + rnd.nextDouble() + rnd.nextDouble()) / 3;
-    final v = (128 + (g - 0.5) * 2 * 110).round().clamp(0, 255);
-    px[i * 4] = v;
-    px[i * 4 + 1] = v;
-    px[i * 4 + 2] = v;
+    final m = g();
+    px[i * 4] = v(color ? g() : m);
+    px[i * 4 + 1] = v(color ? g() : m);
+    px[i * 4 + 2] = v(color ? g() : m);
     px[i * 4 + 3] = 255;
   }
   final c = Completer<ui.Image>();
   ui.decodeImageFromPixels(px, n, n, ui.PixelFormat.rgba8888, c.complete);
-  _grainTile = await c.future;
+  return c.future;
+}
+
+Future<void> prepareGrain() async {
+  _grainMono ??= await _noiseTile(color: false, seed: 7);
+  _grainColor ??= await _noiseTile(color: true, seed: 11);
 }
 
 /// Zeichnet die Collage. Wird für die Vorschau UND den Export benutzt,
@@ -42,7 +48,7 @@ void paintCollage(
   int? dragFrom,
   int? dragTarget,
 }) {
-  final unit = size.width / 400;
+  final unit = size.width / 400 / (d.carousel ? d.slides : 1);
   canvas.drawRect(Offset.zero & size, Paint()..color = d.background);
   final frames = cellFrames(
     d.normalizedRects,
@@ -51,7 +57,6 @@ void paintCollage(
     d.spacing * unit,
   );
   final radius = d.corners * unit;
-  final look = original ? null : d.look;
 
   for (var i = 0; i < frames.length; i++) {
     final f = frames[i];
@@ -78,19 +83,19 @@ void paintCollage(
         img.width.toDouble(),
         img.height.toDouble(),
       );
-      if (preview && dragFrom == i) {
-        canvas.saveLayer(f, Paint()..color = const Color(0x66FFFFFF));
-      }
+      final dim = preview && dragFrom == i;
+      if (dim) canvas.saveLayer(f, Paint()..color = const Color(0x66FFFFFF));
       canvas.drawImageRect(
         img,
         src,
         dst,
         Paint()..filterQuality = FilterQuality.high,
       );
+      final look = original ? null : (slot.look ?? d.look);
       if (look != null && look.active) {
         _paintLook(canvas, img, src, dst, f, look, unit);
       }
-      if (preview && dragFrom == i) canvas.restore();
+      if (dim) canvas.restore();
     } else if (preview) {
       _paintEmpty(canvas, f, i);
     }
@@ -108,7 +113,8 @@ void paintCollage(
   }
 }
 
-/// Halation, Black Mist und Körnung über ein Foto legen.
+/// Unit bezieht sich immer auf die Breite EINER Slide / eines Bildes,
+/// damit Effekte im Karussell genauso stark wirken wie in einer Collage.
 void _paintLook(
   Canvas canvas,
   ui.Image img,
@@ -118,10 +124,9 @@ void _paintLook(
   FilmLook look,
   double unit,
 ) {
-  // Black Mist: weichgezeichnete Kopie aufhellend darüber.
-  // Hebt die Schatten an und lässt Lichter weich leuchten.
-  if (look.mist > 0) {
-    final s = 8 * unit;
+  // Black Mist: weichgezeichnete Kopie aufhellend darüber und leicht angehobene Schatten.
+  if (look.mistOn && look.mistAmount > 0) {
+    final s = (3 + look.mistSoftness * 12) * unit;
     canvas.drawImageRect(
       img,
       src,
@@ -133,14 +138,31 @@ void _paintLook(
           tileMode: TileMode.clamp,
         )
         ..blendMode = BlendMode.screen
-        ..color = Color.fromRGBO(255, 255, 255, (look.mist * 0.6).clamp(0, 1)),
+        ..color = Color.fromRGBO(
+          255,
+          255,
+          255,
+          (look.mistAmount * 0.65).clamp(0, 1),
+        ),
     );
+    final lift = look.mistLift * look.mistAmount * 0.16;
+    if (lift > 0) {
+      canvas.drawRect(
+        cell,
+        Paint()
+          ..blendMode = BlendMode.screen
+          ..color = Color.fromRGBO(128, 124, 120, lift.clamp(0, 1)),
+      );
+    }
   }
 
-  // Halation: nur die hellsten Stellen, rot-orange eingefärbt und weichgezeichnet.
-  if (look.halation > 0) {
-    const t = 0.6; // ab welcher Helligkeit es leuchtet
-    final k = 2.6 + look.halation * 1.6;
+  // Halation: nur die hellsten Stellen, rot bis orange eingefärbt und weichgezeichnet.
+  if (look.halOn && look.halAmount > 0) {
+    final t =
+        0.4 + look.halThreshold * 0.55; // ab welcher Helligkeit es leuchtet
+    final k = 2.4 + look.halAmount * 3;
+    final g = 0.5 - look.halWarmth * 0.36; // Wärme: weniger Grün = röter
+    final b = 0.16 - look.halWarmth * 0.13;
     List<double> row(double tint) => [
       0.3 * k * tint,
       0.59 * k * tint,
@@ -148,77 +170,113 @@ void _paintLook(
       0,
       -k * t * 255 * tint,
     ];
-    final matrix = <double>[
-      ...row(1.0),
-      ...row(0.32),
-      ...row(0.08),
-      0,
-      0,
-      0,
-      1,
-      0,
-    ];
-    final s = (2 + look.halation * 3) * unit;
-    canvas.drawImageRect(
-      img,
-      src,
-      dst,
+    final matrix = <double>[...row(1.0), ...row(g), ...row(b), 0, 0, 0, 1, 0];
+    final s = (1.5 + look.halRadius * 10) * unit;
+    final a = (look.halAmount * 1.3).clamp(0.0, 1.0);
+    // Zwei Schichten: enger Kern und weiter Schein, wie bei echtem Film.
+    for (final (sigma, alpha) in [(s, a), (s * 2.6, a * 0.7)]) {
+      canvas.drawImageRect(
+        img,
+        src,
+        dst,
+        Paint()
+          ..colorFilter = ColorFilter.matrix(matrix)
+          ..imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.decal)
+          ..blendMode = BlendMode.screen
+          ..color = Color.fromRGBO(255, 255, 255, alpha),
+      );
+    }
+  }
+
+  // Vignette: Ränder des Fotos abdunkeln.
+  if (look.vigOn && look.vigAmount > 0) {
+    final inner = (0.75 - look.vigSoftness * 0.55).clamp(0.05, 0.9);
+    canvas.drawRect(
+      cell,
       Paint()
-        ..colorFilter = ColorFilter.matrix(matrix)
-        ..imageFilter = ui.ImageFilter.blur(
-          sigmaX: s,
-          sigmaY: s,
-          tileMode: TileMode.decal,
-        )
-        ..blendMode = BlendMode.screen
-        ..color = Color.fromRGBO(255, 255, 255, look.halation.clamp(0, 1)),
+        ..shader = ui.Gradient.radial(
+          cell.center,
+          math.sqrt(cell.width * cell.width + cell.height * cell.height) / 2,
+          [
+            const Color(0x00000000),
+            Color.fromRGBO(0, 0, 0, (look.vigAmount * 0.85).clamp(0, 1)),
+          ],
+          [inner, 1.0],
+        ),
     );
   }
 
-  // Körnung: Rauschkachel, im Modus Ineinanderkopieren.
-  final tile = _grainTile;
-  if (look.grain > 0 && tile != null) {
-    final scale = math.max(unit * 0.55, 0.6);
+  // Körnung: Rauschkachel im Modus Ineinanderkopieren, grau und farbig gemischt.
+  if (look.grainOn && look.grainAmount > 0) {
+    final scale = math.max(unit * (0.3 + look.grainSize * 1.2), 0.6);
     final m = Float64List(16)
       ..[0] = scale
       ..[5] = scale
       ..[10] = 1
       ..[15] = 1;
-    canvas.drawRect(
-      cell,
-      Paint()
-        ..shader = ImageShader(tile, TileMode.repeated, TileMode.repeated, m)
-        ..blendMode = BlendMode.overlay
-        ..color = Color.fromRGBO(255, 255, 255, (look.grain * 0.9).clamp(0, 1)),
-    );
+    void layer(ui.Image? tile, double alpha) {
+      if (tile == null || alpha <= 0) return;
+      canvas.drawRect(
+        cell,
+        Paint()
+          ..shader = ImageShader(tile, TileMode.repeated, TileMode.repeated, m)
+          ..blendMode = BlendMode.overlay
+          ..color = Color.fromRGBO(255, 255, 255, alpha.clamp(0, 1)),
+      );
+    }
+
+    final a = look.grainAmount * 0.9;
+    layer(_grainMono, a * (1 - look.grainColor));
+    layer(_grainColor, a * look.grainColor);
   }
 }
 
 void _paintEmpty(Canvas canvas, Rect f, int i) {
   canvas.drawRect(f, Paint()..color = AppColors.empty);
+  if (f.width < 30 || f.height < 24) return;
+  // Feine Plus Markierung in der Mitte.
+  final arm = (f.shortestSide * 0.06).clamp(4.0, 9.0);
+  final plus = Paint()
+    ..color = AppColors.muted
+    ..strokeWidth = 1;
+  canvas.drawLine(f.center - Offset(arm, 0), f.center + Offset(arm, 0), plus);
+  canvas.drawLine(f.center - Offset(0, arm), f.center + Offset(0, arm), plus);
+  // Nummer klein in der Ecke.
+  if (f.width < 44 || f.height < 36) return;
   final tp = TextPainter(
     text: TextSpan(
-      text: '${(i + 1).toString().padLeft(2, '0')} +',
+      text: (i + 1).toString().padLeft(2, '0'),
       style: const TextStyle(
         fontFamily: kMono,
-        fontSize: 11,
+        fontSize: 9,
+        letterSpacing: 1,
         color: AppColors.muted,
       ),
     ),
     textDirection: TextDirection.ltr,
   )..layout();
-  tp.paint(canvas, f.center - Offset(tp.width / 2, tp.height / 2));
+  tp.paint(canvas, f.topLeft + const Offset(7, 6));
 }
 
 class CollagePainter extends CustomPainter {
   CollagePainter(
     this.design, {
+    this.fullSize,
+    this.scrollX = 0,
+    this.mini = false,
     this.dragFrom,
     this.dragTarget,
     this.activeSeam,
     this.original = false,
   });
   final Design design;
+
+  /// Größe der ganzen Leinwand, wenn nur ein Ausschnitt gezeigt wird (Karussell).
+  final Size? fullSize;
+  final double scrollX;
+
+  /// Kleine Übersicht: ohne Griffe und Beschriftung.
+  final bool mini;
   final int? dragFrom;
   final int? dragTarget;
   final Seam? activeSeam;
@@ -226,23 +284,73 @@ class CollagePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final full = fullSize ?? size;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    canvas.translate(-scrollX, 0);
     paintCollage(
       canvas,
-      size,
+      full,
       design,
       imageFor: (i) => design.slots[i]?.photo.preview,
-      preview: true,
+      preview: !mini,
       original: original,
       dragFrom: dragFrom,
       dragTarget: dragTarget,
     );
-    if (dragFrom == null) _paintHandles(canvas, size);
-    if (activeSeam != null) _paintPixelLabels(canvas, size);
+    if (design.carousel) _paintSlideGuides(canvas, full);
+    if (!mini && dragFrom == null) _paintHandles(canvas, full);
+    if (!mini && activeSeam != null) _paintPixelLabels(canvas, full);
+    canvas.restore();
+  }
+
+  /// Karussell: gestrichelte Linien, wo eine Slide endet, plus Nummer.
+  void _paintSlideGuides(Canvas canvas, Size size) {
+    final n = design.slides;
+    final line = Paint()
+      ..color = const Color(0x99FFFFFF)
+      ..strokeWidth = mini ? 1 : 1.2;
+    for (var k = 1; k < n; k++) {
+      final x = size.width * k / n;
+      const dash = 6.0;
+      for (var y = 0.0; y < size.height; y += dash * 2) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(x, math.min(y + dash, size.height)),
+          line,
+        );
+      }
+    }
+    if (mini) return;
+    for (var k = 0; k < n; k++) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '${k + 1}/$n',
+          style: const TextStyle(
+            fontFamily: kMono,
+            fontSize: 10,
+            color: AppColors.text,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final box = Rect.fromLTWH(
+        size.width * k / n + 6,
+        6,
+        tp.width + 8,
+        tp.height + 4,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(box, const Radius.circular(4)),
+        Paint()..color = const Color(0xAA000000),
+      );
+      tp.paint(canvas, box.topLeft + const Offset(4, 2));
+    }
   }
 
   /// Kleine Griffe auf den Trennlinien, an denen man ziehen kann.
   void _paintHandles(Canvas canvas, Size size) {
-    final border = design.border * size.width / 400;
+    final border = design.border * _unit(size);
     final seams = findSeams(design.normalizedRects);
     // Die gezogene Linie finden (gleiche Richtung, nächste Position).
     final active = activeSeam;
@@ -265,36 +373,33 @@ class CollagePainter extends CustomPainter {
     for (final s in seams) {
       final isActive = identical(s, hot);
       final m = seamOnCanvas(s, size, border).mid;
-      final pill = RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: m,
-          width: s.vertical ? 5 : 24,
-          height: s.vertical ? 24 : 5,
-        ),
-        const Radius.circular(3),
-      );
-      canvas.drawRRect(
-        pill.inflate(1.5),
-        Paint()..color = const Color(0xCC000000),
-      );
-      canvas.drawRRect(
-        pill,
-        Paint()..color = isActive ? AppColors.accent : const Color(0xFFBDBAB4),
+      // Griff: kleiner Ring, beim Ziehen orange gefüllt.
+      canvas.drawCircle(m, 7.5, Paint()..color = const Color(0xCC111111));
+      canvas.drawCircle(
+        m,
+        5.5,
+        Paint()
+          ..style = isActive ? PaintingStyle.fill : PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = isActive ? AppColors.accent : AppColors.text,
       );
     }
   }
 
+  double _unit(Size full) =>
+      full.width / 400 / (design.carousel ? design.slides : 1);
+
   /// Beim Ziehen: Größe jedes Feldes in Pixeln (bezogen auf den 4K Export).
   void _paintPixelLabels(Canvas canvas, Size size) {
-    final out = design.format.exportSize(uhd: true);
-    final ou = out.width / 400;
+    final out = design.canvasSize(uhd: true);
+    final ou = _unit(out);
     final real = cellFrames(
       design.normalizedRects,
       out,
       design.border * ou,
       design.spacing * ou,
     );
-    final u = size.width / 400;
+    final u = _unit(size);
     final shown = cellFrames(
       design.normalizedRects,
       size,
@@ -330,10 +435,13 @@ class CollagePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-/// Erstellt das fertige Bild als PNG in der Größe [size].
-Future<Uint8List> exportCollage(Design d, Size size) async {
+/// Erstellt die fertigen Bilder als PNG. Eine Collage ergibt ein Bild,
+/// ein Karussell ein Bild pro Slide.
+Future<List<Uint8List>> exportCollage(Design d, {required bool uhd}) async {
   await prepareGrain();
-  final unit = size.width / 400;
+  final size = d.canvasSize(uhd: uhd);
+  final slide = d.slideSize(uhd: uhd);
+  final unit = slide.width / 400;
   final frames = cellFrames(
     d.normalizedRects,
     size,
@@ -369,16 +477,25 @@ Future<Uint8List> exportCollage(Design d, Size size) async {
     codec.dispose();
   }
 
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder, Offset.zero & size);
-  paintCollage(canvas, size, d, imageFor: (i) => images[i]);
-  final picture = recorder.endRecording();
-  final image = await picture.toImage(size.width.toInt(), size.height.toInt());
-  picture.dispose();
+  final count = d.carousel ? d.slides : 1;
+  final results = <Uint8List>[];
+  for (var k = 0; k < count; k++) {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Offset.zero & slide);
+    canvas.translate(-k * slide.width, 0);
+    paintCollage(canvas, size, d, imageFor: (i) => images[i]);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      slide.width.toInt(),
+      slide.height.toInt(),
+    );
+    picture.dispose();
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    results.add(data!.buffer.asUint8List());
+  }
   for (final img in images.values) {
     img.dispose();
   }
-  final data = await image.toByteData(format: ui.ImageByteFormat.png);
-  image.dispose();
-  return data!.buffer.asUint8List();
+  return results;
 }

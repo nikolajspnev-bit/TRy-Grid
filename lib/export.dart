@@ -14,7 +14,7 @@ Future<void> showExportSheet(BuildContext context, CollageStore store) {
     backgroundColor: AppColors.panel,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
     ),
     builder: (_) => ExportSheet(store: store),
   );
@@ -33,7 +33,9 @@ class _ExportSheetState extends State<ExportSheet> {
   bool busy = false;
   String? message;
 
-  Size get size => widget.store.design.format.exportSize(uhd: uhd);
+  Size get size => widget.store.design.slideSize(uhd: uhd);
+  int get count =>
+      widget.store.design.carousel ? widget.store.design.slides : 1;
 
   String get fileName {
     final clean = widget.store.title
@@ -42,10 +44,10 @@ class _ExportSheetState extends State<ExportSheet> {
     return clean.isEmpty ? 'Collage' : clean;
   }
 
-  Future<Uint8List> _render() =>
-      exportCollage(widget.store.design.clone(), size);
+  Future<List<Uint8List>> _render() =>
+      exportCollage(widget.store.design.clone(), uhd: uhd);
 
-  Future<void> _run(Future<void> Function(Uint8List bytes) action) async {
+  Future<void> _run(Future<void> Function(List<Uint8List> files) action) async {
     setState(() {
       busy = true;
       message = null;
@@ -58,24 +60,39 @@ class _ExportSheetState extends State<ExportSheet> {
     if (mounted) setState(() => busy = false);
   }
 
-  Future<void> _save(Uint8List bytes) async {
+  String _name(int i) => count == 1
+      ? fileName
+      : '${fileName}_${(i + 1).toString().padLeft(2, '0')}';
+
+  Future<void> _save(List<Uint8List> files) async {
     if (!await Gal.hasAccess() && !await Gal.requestAccess()) {
       throw Exception(
         'Kein Zugriff auf Fotos. Bitte in den Einstellungen erlauben.',
       );
     }
-    await Gal.putImageBytes(bytes, name: fileName);
-    message = 'Gespeichert in Fotos.';
+    for (var i = 0; i < files.length; i++) {
+      await Gal.putImageBytes(files[i], name: _name(i));
+    }
+    message = files.length == 1
+        ? 'Gespeichert in Fotos.'
+        : '${files.length} Bilder in Fotos gespeichert, in der richtigen Reihenfolge.';
   }
 
-  Future<void> _share(Uint8List bytes) async {
+  Future<void> _share(List<Uint8List> files) async {
     final box = context.findRenderObject() as RenderBox?;
     await SharePlus.instance.share(
       ShareParams(
         files: [
-          XFile.fromData(bytes, mimeType: 'image/png', name: '$fileName.png'),
+          for (var i = 0; i < files.length; i++)
+            XFile.fromData(
+              files[i],
+              mimeType: 'image/png',
+              name: '${_name(i)}.png',
+            ),
         ],
-        fileNameOverrides: ['$fileName.png'],
+        fileNameOverrides: [
+          for (var i = 0; i < files.length; i++) '${_name(i)}.png',
+        ],
         sharePositionOrigin: box == null
             ? null
             : box.localToGlobal(Offset.zero) & box.size,
@@ -108,11 +125,11 @@ class _ExportSheetState extends State<ExportSheet> {
             ),
             const SizedBox(height: 8),
             Center(
-              child: SizedBox(
-                height: 150,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 150),
                 child: AspectRatio(
-                  aspectRatio: d.format.ratio,
-                  child: CustomPaint(painter: CollagePainter(d, dragFrom: -1)),
+                  aspectRatio: d.canvasRatio,
+                  child: CustomPaint(painter: CollagePainter(d, mini: true)),
                 ),
               ),
             ),
@@ -123,6 +140,7 @@ class _ExportSheetState extends State<ExportSheet> {
               onChanged: busy ? null : (i) => setState(() => uhd = i == 1),
             ),
             const SizedBox(height: 14),
+            if (count > 1) InfoRow('Bilder', '$count Slides'),
             InfoRow(
               'Größe',
               '${size.width.round()} × ${size.height.round()} px',

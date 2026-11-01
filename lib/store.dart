@@ -78,14 +78,18 @@ class CollageStore extends ChangeNotifier {
 
   /// Verteilt neue Fotos auf freie Felder. Im Raster werden bei Bedarf
   /// automatisch mehr Felder angelegt.
-  void addPhotos(List<Photo> photos) {
+  /// Fügt Fotos in freie Felder ein. Mit [startAt] beginnt es bei diesem
+  /// Feld und läuft dann der Reihe nach weiter (danach wieder von vorne).
+  void addPhotos(List<Photo> photos, {int startAt = 0}) {
     if (photos.isEmpty) return;
     edit((d) {
       final used = d.slots.take(d.frames).where((s) => s != null).length;
       final needed = used + photos.length;
       if (needed > d.frames) d.frames = math.min(kMaxSlots, needed);
       final queue = List<Photo>.of(photos);
-      for (var i = 0; i < d.visibleCount && queue.isNotEmpty; i++) {
+      final n = d.visibleCount;
+      for (var k = 0; k < n && queue.isNotEmpty; k++) {
+        final i = (startAt + k) % n;
         if (d.slots[i] == null) d.slots[i] = Slot(queue.removeAt(0));
       }
     });
@@ -100,7 +104,9 @@ class CollageStore extends ChangeNotifier {
   }
 
   /// Fotos aus der Galerie wählen und laden.
-  Future<void> pickPhotos({int? intoSlot}) async {
+  /// [intoSlot]: genau ein Foto für dieses Feld (Ersetzen).
+  /// [startAt]: leeres Feld angetippt, mehrere Fotos ab diesem Feld.
+  Future<void> pickPhotos({int? intoSlot, int startAt = 0}) async {
     final picker = ImagePicker();
     final List<XFile> files;
     // imageQuality sorgt dafür, dass HEIC Bilder als JPEG ankommen.
@@ -126,7 +132,7 @@ class CollageStore extends ChangeNotifier {
     if (intoSlot != null && photos.isNotEmpty) {
       setPhoto(intoSlot, photos.first);
     } else {
-      addPhotos(photos);
+      addPhotos(photos, startAt: startAt);
     }
     notifyListeners();
   }
