@@ -5,6 +5,7 @@ import 'models.dart';
 import 'painter.dart';
 import 'storage/bytes_store.dart';
 import 'store.dart';
+import 'video/video_native.dart';
 
 /// Eintrag in "Meine Collagen".
 class DraftInfo {
@@ -57,6 +58,8 @@ class Drafts {
     final newId = id ?? DateTime.now().millisecondsSinceEpoch.toString();
     for (final slot in design.slots) {
       if (slot == null) continue;
+      // Videos liegen schon als Datei im App Speicher.
+      if (slot.photo.video != null) continue;
       final key = 'p_${slot.photo.key}';
       if (!await _s.has(key)) await _s.put(key, slot.photo.bytes);
     }
@@ -77,12 +80,26 @@ class Drafts {
     final dj = (j['design'] as Map).cast<String, dynamic>();
     final photos = <String, Photo>{};
     for (final key in Design.photoKeysIn(dj)) {
+      if (key.startsWith('v-')) {
+        final p = await openVideo(key.substring(2));
+        if (p != null) photos[key] = p;
+        continue;
+      }
       final bytes = await _s.get('p_$key');
       if (bytes == null) continue;
       final p = await loadPhoto(bytes);
       if (p != null) photos[key] = p;
     }
-    return (Design.fromJson(dj, photos), (j['title'] as String?) ?? 'Collage');
+    final design = Design.fromJson(dj, photos);
+    // Videos mit späterem Start: passendes Vorschaubild holen.
+    for (final slot in design.slots) {
+      final v = slot?.photo.video;
+      if (slot == null || v == null || slot.videoStartMs <= 0) continue;
+      try {
+        slot.startFrame = await VideoNative.frameAt(v.path, slot.videoStartMs);
+      } catch (_) {}
+    }
+    return (design, (j['title'] as String?) ?? 'Collage');
   }
 
   /// Löscht eine Collage und Fotos, die keine andere Collage mehr braucht.
@@ -105,7 +122,11 @@ class Drafts {
       ));
     }
     for (final k in mine.difference(used)) {
-      await _s.delete('p_$k');
+      if (k.startsWith('v-')) {
+        await _s.deleteVideo(k.substring(2));
+      } else {
+        await _s.delete('p_$k');
+      }
     }
   }
 }

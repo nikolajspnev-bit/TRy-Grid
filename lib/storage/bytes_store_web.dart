@@ -44,4 +44,13 @@ class _IdbStore implements BytesStore {
 
   @override
   Future<bool> has(String key) async => (await get(key)) != null;
+
+  @override
+  Future<String?> importVideo(String sourcePath) async => null;
+
+  @override
+  Future<String?> videoPath(String name) async => null;
+
+  @override
+  Future<void> deleteVideo(String name) async {}
 }

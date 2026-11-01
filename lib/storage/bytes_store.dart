@@ -10,6 +10,12 @@ abstract class BytesStore {
   Future<void> delete(String key);
   Future<bool> has(String key);
 
+  /// Videos (nur in der App): Datei in den App Speicher kopieren.
+  /// Gibt den Namen zurück, unter dem sie liegt.
+  Future<String?> importVideo(String sourcePath);
+  Future<String?> videoPath(String name);
+  Future<void> deleteVideo(String name);
+
   static BytesStore? _instance;
   static BytesStore get instance => _instance ??= impl.createStore();
 }

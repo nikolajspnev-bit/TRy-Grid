@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'drafts.dart';
+import 'storage/bytes_store.dart';
+import 'video/video_native.dart';
 import 'models.dart';
 
 /// Hält die Collage und den Verlauf für Rückgängig / Wiederholen.
@@ -182,14 +184,16 @@ class CollageStore extends ChangeNotifier {
     final picker = ImagePicker();
     final List<XFile> files;
     // imageQuality sorgt dafür, dass HEIC Bilder als JPEG ankommen.
+    // In der App gehen auch Videos, im Browser nur Fotos.
     if (intoSlot != null) {
-      final f = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 95,
-      );
+      final f = kIsWeb
+          ? await picker.pickImage(source: ImageSource.gallery, imageQuality: 95)
+          : await picker.pickMedia(imageQuality: 95);
       files = f == null ? [] : [f];
     } else {
-      files = await picker.pickMultiImage(imageQuality: 95, limit: kMaxSlots);
+      files = kIsWeb
+          ? await picker.pickMultiImage(imageQuality: 95, limit: kMaxSlots)
+          : await picker.pickMultipleMedia(imageQuality: 95, limit: kMaxSlots);
     }
     if (files.isEmpty) return;
 
@@ -197,7 +201,7 @@ class CollageStore extends ChangeNotifier {
     notifyListeners();
     final photos = <Photo>[];
     for (final f in files) {
-      final p = await loadPhoto(await f.readAsBytes());
+      final p = !kIsWeb && isVideoFile(f) ? await loadVideo(f.path) : await loadPhoto(await f.readAsBytes());
       if (p != null) photos.add(p);
     }
     loading = false;
@@ -230,6 +234,44 @@ Future<Photo?> loadPhoto(Uint8List bytes) async {
     return Photo(bytes: bytes, preview: frame.image);
   } catch (e) {
     debugPrint('Foto konnte nicht geladen werden: $e');
+    return null;
+  }
+}
+
+bool isVideoFile(XFile f) {
+  final mime = f.mimeType ?? '';
+  if (mime.startsWith('video/')) return true;
+  final n = f.path.toLowerCase();
+  return ['.mp4', '.mov', '.m4v', '.3gp', '.webm', '.mkv'].any(n.endsWith);
+}
+
+/// Video in den App Speicher übernehmen und das erste Bild als Vorschau holen.
+Future<Photo?> loadVideo(String sourcePath) async {
+  try {
+    final name = await BytesStore.instance.importVideo(sourcePath);
+    if (name == null) return null;
+    return await openVideo(name);
+  } catch (e) {
+    debugPrint('Video konnte nicht geladen werden: $e');
+    return null;
+  }
+}
+
+/// Gespeichertes Video öffnen (Vorschaubild und Länge).
+Future<Photo?> openVideo(String name) async {
+  try {
+    final path = await BytesStore.instance.videoPath(name);
+    if (path == null) return null;
+    final info = await VideoNative.probe(path);
+    final poster = await VideoNative.frameAt(path, 0);
+    final png = await poster.toByteData(format: ui.ImageByteFormat.png);
+    return Photo(
+      bytes: png!.buffer.asUint8List(),
+      preview: poster,
+      video: VideoSource(name: name, path: path, durationMs: info.durationMs),
+    );
+  } catch (e) {
+    debugPrint('Video konnte nicht geöffnet werden: $e');
     return null;
   }
 }

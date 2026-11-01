@@ -92,6 +92,7 @@ Ein Build läuft nach 90 Tagen ab. Für ein Update: in **pubspec.yaml** die Zahl
 - **Format:** Collage oder Karussell (mit Aufteilung Durchlaufend, Pro Slide, Brücke).
 - **LOOK:** Film Farben, Blitz, Halation, Black Mist, Körnung, Vignette. Für alle Fotos oder einzeln.
 - **Export:** 1080p oder 4K, beim Karussell auf Wunsch mit Gesamtbild.
+- **Videos (nur in der App):** Beim Hinzufügen auch Videos wählen. Video Feld antippen: Startpunkt mit dem Regler **Start** wählen. Beim Export **Video MP4** wählen, Länge einstellen, sichern. Kürzere Videos laufen in Schleife, Fotos bleiben stehen. Noch ohne Ton und noch nicht im Karussell.
 
 ## Wenn etwas nicht klappt
 

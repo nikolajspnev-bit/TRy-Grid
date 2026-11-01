@@ -1,16 +1,28 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'theme.dart';
+import 'video/video_native.dart';
 
 enum CropAction { save, replace, remove }
 
 class CropResult {
-  CropResult(this.action, {this.zoom = 1, this.offsetX = 0, this.offsetY = 0});
+  CropResult(
+    this.action, {
+    this.zoom = 1,
+    this.offsetX = 0,
+    this.offsetY = 0,
+    this.videoStartMs = 0,
+    this.startFrame,
+  });
   final CropAction action;
   final double zoom;
   final double offsetX;
   final double offsetY;
+  final int videoStartMs;
+  final ui.Image? startFrame;
 }
 
 /// Bild im Feld zoomen und verschieben.
@@ -32,6 +44,28 @@ class _CropScreenState extends State<CropScreen> {
   late double oy = widget.slot.offsetY;
 
   double _startZoom = 1;
+
+  // Video: Startpunkt (wird beim Loslassen des Reglers geladen).
+  late double startMs = widget.slot.videoStartMs.toDouble();
+  bool loadingFrame = false;
+
+  Future<void> _loadStart() async {
+    final v = widget.slot.photo.video;
+    if (v == null) return;
+    setState(() => loadingFrame = true);
+    try {
+      final img = await VideoNative.frameAt(v.path, startMs.round());
+      widget.slot
+        ..startFrame = img
+        ..videoStartMs = startMs.round();
+    } catch (_) {}
+    if (mounted) setState(() => loadingFrame = false);
+  }
+
+  String _time(double ms) {
+    final s = (ms / 1000).floor();
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
   Rect _cell = Rect.zero;
 
   @override
@@ -47,13 +81,20 @@ class _CropScreenState extends State<CropScreen> {
           ),
         ),
         leadingWidth: 110,
-        title: const Text('Zuschneiden'),
+        title: Text(widget.slot.photo.video != null ? 'Video' : 'Zuschneiden'),
         centerTitle: true,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(
               context,
-              CropResult(CropAction.save, zoom: zoom, offsetX: ox, offsetY: oy),
+              CropResult(
+                CropAction.save,
+                zoom: zoom,
+                offsetX: ox,
+                offsetY: oy,
+                videoStartMs: widget.slot.videoStartMs,
+                startFrame: widget.slot.startFrame,
+              ),
             ),
             child: const Text(
               'Fertig',
@@ -89,12 +130,46 @@ class _CropScreenState extends State<CropScreen> {
                     onScaleUpdate: _onScale,
                     child: CustomPaint(
                       size: Size(c.maxWidth, c.maxHeight),
-                      painter: _CropPainter(widget.slot, _cell, zoom, ox, oy),
+                      painter: _CropPainter(widget.slot, _cell, zoom, ox, oy, widget.slot.shown),
                     ),
                   );
                 },
               ),
             ),
+            if (widget.slot.photo.video != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 44, child: Text('Start', style: TextStyle(fontSize: 12))),
+                    Expanded(
+                      child: Slider(
+                        value: startMs.clamp(0, _maxStart),
+                        min: 0,
+                        max: _maxStart,
+                        onChanged: (v) => setState(() => startMs = v),
+                        onChangeEnd: (_) => _loadStart(),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: loadingFrame
+                          ? const Center(
+                              child: SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent),
+                              ),
+                            )
+                          : Text(
+                              _time(startMs),
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(fontSize: 12, color: AppColors.accent),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -146,6 +221,11 @@ class _CropScreenState extends State<CropScreen> {
     );
   }
 
+  double get _maxStart {
+    final d = widget.slot.photo.video?.durationMs ?? 0;
+    return (d - 500).clamp(1, 1 << 30).toDouble();
+  }
+
   Widget _action(IconData icon, String label, VoidCallback onTap) {
     return TextButton(
       onPressed: onTap,
@@ -183,14 +263,14 @@ class _CropScreenState extends State<CropScreen> {
 }
 
 class _CropPainter extends CustomPainter {
-  _CropPainter(this.slot, this.cell, this.zoom, this.ox, this.oy);
+  _CropPainter(this.slot, this.cell, this.zoom, this.ox, this.oy, this.img);
   final Slot slot;
+  final ui.Image img;
   final Rect cell;
   final double zoom, ox, oy;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final img = slot.photo.preview;
     final dst = imageRect(
       slot.photo.width,
       slot.photo.height,
@@ -245,5 +325,5 @@ class _CropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CropPainter old) =>
-      old.zoom != zoom || old.ox != ox || old.oy != oy || old.cell != cell;
+      old.zoom != zoom || old.ox != ox || old.oy != oy || old.cell != cell || old.img != img;
 }

@@ -164,15 +164,29 @@ enum LayoutMode { grid, bento }
 /// Ein geladenes Foto. [bytes] ist das Original für den Export,
 /// [preview] eine verkleinerte Version für die Anzeige.
 class Photo {
-  Photo({required this.bytes, required this.preview});
+  Photo({required this.bytes, required this.preview, this.video});
   final Uint8List bytes;
   final ui.Image preview;
+
+  /// Gesetzt, wenn das Feld ein Video ist. [bytes] und [preview] sind dann
+  /// das erste Bild des Videos.
+  final VideoSource? video;
 
   double get width => preview.width.toDouble();
   double get height => preview.height.toDouble();
 
   /// Kennung aus dem Inhalt, damit gleiche Fotos nur einmal gespeichert werden.
-  late final String key = _fingerprint(bytes);
+  late final String key = video != null ? 'v-${video!.name}' : _fingerprint(bytes);
+}
+
+/// Ein Video im App Speicher.
+class VideoSource {
+  VideoSource({required this.name, required this.path, required this.durationMs});
+
+  /// Dateiname im App Speicher (bleibt gleich), [path] ist der volle Pfad.
+  final String name;
+  final String path;
+  final int durationMs;
 }
 
 String _fingerprint(Uint8List b) {
@@ -201,7 +215,17 @@ class Slot {
   /// Eigener Film Look nur für dieses Foto. null = Look von "Alle".
   FilmLook? look;
 
-  Slot copy() => Slot(photo, zoom: zoom, offsetX: offsetX, offsetY: offsetY)..look = look?.copy();
+  /// Video: ab wann es abgespielt wird, und das Bild an dieser Stelle.
+  int videoStartMs = 0;
+  ui.Image? startFrame;
+
+  /// Bild für die Vorschau.
+  ui.Image get shown => startFrame ?? photo.preview;
+
+  Slot copy() => Slot(photo, zoom: zoom, offsetX: offsetX, offsetY: offsetY)
+    ..look = look?.copy()
+    ..videoStartMs = videoStartMs
+    ..startFrame = startFrame;
 }
 
 /// Der komplette Zustand einer Collage.
@@ -246,6 +270,8 @@ class Design {
           CarouselSplit.perSlide => slides,
           CarouselSplit.bridge => 2 * slides - 1,
         };
+
+  bool get hasVideo => slots.any((s) => s?.photo.video != null);
 
   bool get hasCustomLayout => _custom != null && _customKey == _layoutKey;
 
@@ -299,6 +325,7 @@ class Design {
                 'zoom': s.zoom,
                 'offsetX': s.offsetX,
                 'offsetY': s.offsetY,
+                if (s.videoStartMs > 0) 'start': s.videoStartMs,
                 if (s.look != null) 'look': s.look!.toJson(),
               },
     ],
@@ -337,7 +364,9 @@ class Design {
         zoom: (s['zoom'] as num?)?.toDouble() ?? 1,
         offsetX: (s['offsetX'] as num?)?.toDouble() ?? 0,
         offsetY: (s['offsetY'] as num?)?.toDouble() ?? 0,
-      )..look = s['look'] is Map ? filmLookFromJson((s['look'] as Map).cast<String, dynamic>()) : null;
+      )
+        ..look = s['look'] is Map ? filmLookFromJson((s['look'] as Map).cast<String, dynamic>()) : null
+        ..videoStartMs = (s['start'] as num?)?.toInt() ?? 0;
     }
     if (j['custom'] is List) {
       d._custom = [

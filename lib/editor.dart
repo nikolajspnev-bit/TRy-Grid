@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -759,6 +760,8 @@ class _EditorScreenState extends State<EditorScreen> {
           s.zoom = result.zoom;
           s.offsetX = result.offsetX;
           s.offsetY = result.offsetY;
+          s.videoStartMs = result.videoStartMs;
+          s.startFrame = result.startFrame;
         });
       case CropAction.replace:
         await store.pickPhotos(intoSlot: i);
@@ -1124,7 +1127,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      RawImage(image: d.slots[i]!.photo.preview, fit: BoxFit.cover),
+                      RawImage(image: d.slots[i]!.shown, fit: BoxFit.cover),
                       // Punkt: dieses Foto hat einen eigenen Look.
                       if (d.slots[i]!.look != null)
                         const Positioned(
@@ -1489,7 +1492,7 @@ class _EditorScreenState extends State<EditorScreen> {
       children: [
         const SizedBox(height: 8),
         ActionRow(
-          label: 'Fotos hinzufügen',
+          label: kIsWeb ? 'Fotos hinzufügen' : 'Fotos und Videos hinzufügen',
           icon: Icons.add,
           accent: true,
           onTap: store.loading ? null : () => store.pickPhotos(),
@@ -1507,7 +1510,7 @@ class _EditorScreenState extends State<EditorScreen> {
         const SizedBox(height: 4),
         const Text(
           'Fotos landen in freien Feldern, bei Bedarf kommen neue dazu (max. 20). '
-          'Leeres Feld antippen: mehrere Fotos ab dort. Foto halten: tauschen. Foto antippen: zuschneiden.',
+          'Leeres Feld antippen: mehrere Fotos ab dort. Foto halten: tauschen. Foto antippen: zuschneiden (bei Videos auch der Startpunkt).',
           style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),
       ],

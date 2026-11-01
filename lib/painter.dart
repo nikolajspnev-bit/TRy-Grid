@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'models.dart';
+import 'video/video_native.dart';
 import 'theme.dart';
 
 /// Kacheln mit Filmkorn (grau und farbig), werden einmal beim Start erzeugt.
@@ -47,6 +48,7 @@ void paintCollage(
   bool original = false,
   int? dragFrom,
   int? dragTarget,
+  int grainSeed = 0,
 }) {
   final unit = size.width / 400 / (d.carousel ? d.slides : 1);
   canvas.drawRect(Offset.zero & size, Paint()..color = d.background);
@@ -96,9 +98,12 @@ void paintCollage(
           ..colorFilter = matrix == null ? null : ColorFilter.matrix(matrix),
       );
       if (look != null && look.active) {
-        _paintLook(canvas, img, src, dst, f, look, unit);
+        _paintLook(canvas, img, src, dst, f, look, unit, grainSeed);
       }
       if (dim) canvas.restore();
+      if (preview && slot.photo.video != null) {
+        _paintVideoBadge(canvas, f, slot);
+      }
     } else if (preview) {
       _paintEmpty(canvas, f, i);
     }
@@ -126,6 +131,7 @@ void _paintLook(
   Rect cell,
   FilmLook look,
   double unit,
+  int grainSeed,
 ) {
   // Black Mist: weichgezeichnete Kopie aufhellend darüber und leicht angehobene Schatten.
   if (look.mistOn && look.mistAmount > 0) {
@@ -250,11 +256,14 @@ void _paintLook(
   // Körnung: Rauschkachel im Modus Ineinanderkopieren, grau und farbig gemischt.
   if (look.grainOn && look.grainAmount > 0) {
     final scale = math.max(unit * (0.3 + look.grainSize * 1.2), 0.6);
+    // Im Video springt das Korn mit jedem Bild an eine andere Stelle.
     final m = Float64List(16)
       ..[0] = scale
       ..[5] = scale
       ..[10] = 1
-      ..[15] = 1;
+      ..[15] = 1
+      ..[12] = ((grainSeed * 97) % 256) * scale
+      ..[13] = ((grainSeed * 61) % 256) * scale;
     void layer(ui.Image? tile, double alpha) {
       if (tile == null || alpha <= 0) return;
       canvas.drawRect(
@@ -346,6 +355,26 @@ List<double>? _baseMatrix(FilmLook look) {
   return m;
 }
 
+/// Kleine Markierung unten links: dieses Feld ist ein Video (mit Länge).
+void _paintVideoBadge(Canvas canvas, Rect f, Slot slot) {
+  if (f.width < 50 || f.height < 30) return;
+  final secs = ((slot.photo.video!.durationMs - slot.videoStartMs) / 1000).clamp(0, 5999).round();
+  final label = '▶ ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
+  final tp = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: const TextStyle(fontFamily: kMono, fontSize: 9, color: AppColors.text),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  final box = Rect.fromLTWH(f.left + 6, f.bottom - tp.height - 10, tp.width + 10, tp.height + 4);
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(box, const Radius.circular(4)),
+    Paint()..color = const Color(0xAA000000),
+  );
+  tp.paint(canvas, box.topLeft + const Offset(5, 2));
+}
+
 void _paintEmpty(Canvas canvas, Rect f, int i) {
   canvas.drawRect(f, Paint()..color = AppColors.empty);
   if (f.width < 30 || f.height < 24) return;
@@ -411,7 +440,7 @@ class CollagePainter extends CustomPainter {
       canvas,
       full,
       design,
-      imageFor: (i) => design.slots[i]?.photo.preview,
+      imageFor: (i) => design.slots[i]?.shown,
       preview: !mini,
       original: original,
       dragFrom: dragFrom,
@@ -612,27 +641,7 @@ Future<List<Uint8List>> exportCollage(Design d, {required bool uhd, bool overvie
   for (var i = 0; i < frames.length; i++) {
     final slot = d.slots[i];
     if (slot == null || frames[i].isEmpty) continue;
-    final dst = imageRect(
-      slot.photo.width,
-      slot.photo.height,
-      frames[i],
-      slot.zoom,
-      slot.offsetX,
-      slot.offsetY,
-    );
-    final needed = math.max(dst.width, dst.height).ceil();
-    final codec = await ui.instantiateImageCodecWithSize(
-      await ui.ImmutableBuffer.fromUint8List(slot.photo.bytes),
-      getTargetSize: (w, h) {
-        final longSide = math.max(w, h);
-        if (needed >= longSide) return ui.TargetImageSize(width: w, height: h);
-        return w >= h
-            ? ui.TargetImageSize(width: needed)
-            : ui.TargetImageSize(height: needed);
-      },
-    );
-    images[i] = (await codec.getNextFrame()).image;
-    codec.dispose();
+    images[i] = await decodeForExport(slot, frames[i]);
   }
 
   final count = d.carousel ? d.slides : 1;
@@ -673,6 +682,32 @@ Future<List<Uint8List>> exportCollage(Design d, {required bool uhd, bool overvie
   return results;
 }
 
+/// Lange Seite, die ein Foto im Feld [frame] braucht.
+int neededSide(Slot slot, Rect frame) {
+  final dst = imageRect(slot.photo.width, slot.photo.height, frame, slot.zoom, slot.offsetX, slot.offsetY);
+  return math.max(dst.width, dst.height).ceil();
+}
+
+/// Foto (oder Video Startbild) in der Größe, die der Export braucht.
+Future<ui.Image> decodeForExport(Slot slot, Rect frame) async {
+  final needed = neededSide(slot, frame);
+  final v = slot.photo.video;
+  if (v != null) {
+    return VideoNative.frameAt(v.path, slot.videoStartMs, maxSide: needed);
+  }
+  final codec = await ui.instantiateImageCodecWithSize(
+    await ui.ImmutableBuffer.fromUint8List(slot.photo.bytes),
+    getTargetSize: (w, h) {
+      final longSide = math.max(w, h);
+      if (needed >= longSide) return ui.TargetImageSize(width: w, height: h);
+      return w >= h ? ui.TargetImageSize(width: needed) : ui.TargetImageSize(height: needed);
+    },
+  );
+  final img = (await codec.getNextFrame()).image;
+  codec.dispose();
+  return img;
+}
+
 /// Kleines Vorschaubild (PNG) für "Meine Collagen", aus den Vorschau Fotos.
 Future<Uint8List> renderThumb(Design d, {double longSide = 480}) async {
   await prepareGrain();
@@ -680,7 +715,7 @@ Future<Uint8List> renderThumb(Design d, {double longSide = 480}) async {
   final size = ratio >= 1 ? Size(longSide, longSide / ratio) : Size(longSide * ratio, longSide);
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder, Offset.zero & size);
-  paintCollage(canvas, size, d, imageFor: (i) => d.slots[i]?.photo.preview);
+  paintCollage(canvas, size, d, imageFor: (i) => d.slots[i]?.shown);
   final picture = recorder.endRecording();
   final image = await picture.toImage(size.width.round(), size.height.round());
   picture.dispose();

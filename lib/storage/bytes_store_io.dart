@@ -39,4 +39,31 @@ class _FileStore implements BytesStore {
 
   @override
   Future<bool> has(String key) async => (await _file(key)).exists();
+
+  Directory? _videos;
+
+  Future<Directory> _videoDir() async => _videos ??= await Directory(
+    '${(await getApplicationDocumentsDirectory()).path}/videos',
+  ).create(recursive: true);
+
+  @override
+  Future<String?> importVideo(String sourcePath) async {
+    final dot = sourcePath.lastIndexOf('.');
+    final ext = dot > 0 ? sourcePath.substring(dot).toLowerCase() : '.mp4';
+    final name = '${DateTime.now().microsecondsSinceEpoch}$ext';
+    await File(sourcePath).copy('${(await _videoDir()).path}/$name');
+    return name;
+  }
+
+  @override
+  Future<String?> videoPath(String name) async {
+    final f = File('${(await _videoDir()).path}/$name');
+    return await f.exists() ? f.path : null;
+  }
+
+  @override
+  Future<void> deleteVideo(String name) async {
+    final f = File('${(await _videoDir()).path}/$name');
+    if (await f.exists()) await f.delete();
+  }
 }
