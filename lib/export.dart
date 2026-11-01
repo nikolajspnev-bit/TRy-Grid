@@ -30,6 +30,7 @@ class ExportSheet extends StatefulWidget {
 
 class _ExportSheetState extends State<ExportSheet> {
   bool uhd = true;
+  bool overview = false;
   bool busy = false;
   String? message;
 
@@ -45,7 +46,7 @@ class _ExportSheetState extends State<ExportSheet> {
   }
 
   Future<List<Uint8List>> _render() =>
-      exportCollage(widget.store.design.clone(), uhd: uhd);
+      exportCollage(widget.store.design.clone(), uhd: uhd, overview: overview && count > 1);
 
   Future<void> _run(Future<void> Function(List<Uint8List> files) action) async {
     setState(() {
@@ -62,7 +63,9 @@ class _ExportSheetState extends State<ExportSheet> {
 
   String _name(int i) => count == 1
       ? fileName
-      : '${fileName}_${(i + 1).toString().padLeft(2, '0')}';
+      : i >= count
+          ? '${fileName}_Gesamt'
+          : '${fileName}_${(i + 1).toString().padLeft(2, '0')}';
 
   Future<void> _save(List<Uint8List> files) async {
     if (!await Gal.hasAccess() && !await Gal.requestAccess()) {
@@ -141,6 +144,28 @@ class _ExportSheetState extends State<ExportSheet> {
             ),
             const SizedBox(height: 14),
             if (count > 1) InfoRow('Bilder', '$count Slides'),
+            if (count > 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  children: [
+                    const Text('Gesamtbild dazu', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                    const Spacer(),
+                    Transform.scale(
+                      scale: 0.75,
+                      child: Switch(
+                        value: overview,
+                        onChanged: busy ? null : (v) => setState(() => overview = v),
+                        activeTrackColor: AppColors.accent,
+                        activeThumbColor: AppColors.text,
+                        inactiveTrackColor: AppColors.line,
+                        inactiveThumbColor: AppColors.muted,
+                        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             InfoRow(
               'Größe',
               '${size.width.round()} × ${size.height.round()} px',

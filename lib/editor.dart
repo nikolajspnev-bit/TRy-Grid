@@ -12,7 +12,7 @@ import 'widgets.dart';
 
 enum PanelTab { design, fx, photos }
 
-enum FxKind { halation, mist, grain, vignette }
+enum FxKind { grade, flash, halation, mist, grain, vignette }
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.store});
@@ -34,6 +34,9 @@ class _EditorScreenState extends State<EditorScreen> {
   Seam? seam;
   List<Rect> seamBase = const [];
   double seamDelta = 0;
+
+  /// Position, an der die gezogene Linie gerade eingerastet ist.
+  double? snapPos;
 
   // "Halten für Original"
   bool original = false;
@@ -195,6 +198,8 @@ class _EditorScreenState extends State<EditorScreen> {
     return showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.panel,
+      isScrollControlled: true,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
       ),
@@ -324,9 +329,35 @@ class _EditorScreenState extends State<EditorScreen> {
                       divisions: 8,
                       onStart: store.checkpoint,
                       onChanged: (v) => store.edit(
-                        (d) => d.slides = v.round(),
+                        (d) {
+                          d.slides = v.round();
+                          if (d.frames < d.minFramesForSplit) d.frames = d.minFramesForSplit;
+                        },
                         record: false,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Aufteilung',
+                      style: TextStyle(fontSize: 11, color: AppColors.muted, letterSpacing: 1),
+                    ),
+                    const SizedBox(height: 8),
+                    Segmented(
+                      options: const ['Durchlaufend', 'Pro Slide', 'Brücke'],
+                      selected: d.split.index,
+                      onChanged: (i) => store.edit((d) {
+                        d.split = CarouselSplit.values[i];
+                        if (d.frames < d.minFramesForSplit) d.frames = d.minFramesForSplit;
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      switch (d.split) {
+                        CarouselSplit.flow => 'Die Felder laufen frei über alle Slides.',
+                        CarouselSplit.perSlide => 'Jede Slide hat ihr eigenes Layout.',
+                        CarouselSplit.bridge => 'An jeder Slide Kante liegt ein Foto über beiden Slides. Beim Wischen wirkt es nahtlos.',
+                      },
+                      style: const TextStyle(fontSize: 11, color: AppColors.muted),
                     ),
                   ],
                 ],
@@ -476,17 +507,34 @@ class _EditorScreenState extends State<EditorScreen> {
             }
             if (innerW <= 0 || innerH <= 0) return;
             seamDelta += s.vertical ? e.delta.dx / innerW : e.delta.dy / innerH;
+            // Einrasten: Drittel, Hälfte, Viertel, Slide Kanten und andere Linien.
+            final raw = s.pos + seamDelta;
+            final tol = 9 / (s.vertical ? innerW : innerH);
+            double? best;
+            var bestDist = tol;
+            for (final t in _snapTargets(d, s, fullW, border, innerW)) {
+              final dist = (t - raw).abs();
+              if (dist < bestDist) {
+                bestDist = dist;
+                best = t;
+              }
+            }
+            if (best != null && best != snapPos) HapticFeedback.selectionClick();
+            snapPos = best;
+            final delta = (best ?? raw) - s.pos;
             store.edit(
-              (d) => d.customRects = moveSeam(seamBase, s, seamDelta),
+              (d) => d.customRects = moveSeam(seamBase, s, delta),
               record: false,
             );
           },
           onPanEnd: (_) => setState(() {
             seam = null;
+            snapPos = null;
             scrolling = false;
           }),
           onPanCancel: () => setState(() {
             seam = null;
+            snapPos = null;
             scrolling = false;
           }),
           onTapUp: (e) {
@@ -528,11 +576,14 @@ class _EditorScreenState extends State<EditorScreen> {
               dragFrom: dragFrom,
               dragTarget: dragTarget,
               original: original,
+              snapLine: seam == null || snapPos == null
+                  ? null
+                  : Seam(vertical: seam!.vertical, pos: snapPos!, start: 0, end: 1),
               activeSeam: seam == null
                   ? null
                   : Seam(
                       vertical: seam!.vertical,
-                      pos: seam!.pos + seamDelta,
+                      pos: snapPos ?? seam!.pos + seamDelta,
                       start: seam!.start,
                       end: seam!.end,
                     ),
@@ -581,6 +632,28 @@ class _EditorScreenState extends State<EditorScreen> {
         );
       },
     );
+  }
+
+  /// Positionen (0 bis 1 der Innenfläche), an denen eine Linie einrastet.
+  List<double> _snapTargets(Design d, Seam s, double fullW, double border, double innerW) {
+    const parts = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4];
+    final out = <double>[];
+    if (s.vertical && d.carousel) {
+      // In Slides denken: Kanten und Teile jeder Slide (in Pixeln umgerechnet).
+      final slideW = fullW / d.slides;
+      for (var k = 0; k < d.slides; k++) {
+        for (final f in [0.0, ...parts]) {
+          out.add((slideW * (k + f) - border) / innerW);
+        }
+      }
+    } else {
+      out.addAll(parts);
+    }
+    // Andere Linien in gleicher Richtung, damit Kanten bündig werden.
+    for (final o in findSeams(seamBase)) {
+      if (o.vertical == s.vertical && (o.pos - s.pos).abs() > 0.002) out.add(o.pos);
+    }
+    return out.where((t) => t > 0.01 && t < 0.99).toList();
   }
 
   /// Kleine Übersicht über alle Slides. Antippen oder ziehen springt dorthin.
@@ -1070,6 +1143,8 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   String _fxName(FxKind k) => switch (k) {
+    FxKind.grade => 'Film Farben',
+    FxKind.flash => 'Blitz',
     FxKind.halation => 'Halation',
     FxKind.mist => 'Black Mist',
     FxKind.grain => 'Körnung',
@@ -1077,6 +1152,8 @@ class _EditorScreenState extends State<EditorScreen> {
   };
 
   IconData _fxIcon(FxKind k) => switch (k) {
+    FxKind.grade => Icons.palette_outlined,
+    FxKind.flash => Icons.flash_on_outlined,
     FxKind.halation => Icons.wb_sunny_outlined,
     FxKind.mist => Icons.blur_on,
     FxKind.grain => Icons.grain,
@@ -1086,6 +1163,8 @@ class _EditorScreenState extends State<EditorScreen> {
   (bool, double) _fxState(FxKind k) {
     final l = _shownLook;
     return switch (k) {
+      FxKind.grade => (l.gradeOn, l.gradeAmount),
+      FxKind.flash => (l.flashOn, l.flashAmount),
       FxKind.halation => (l.halOn, l.halAmount),
       FxKind.mist => (l.mistOn, l.mistAmount),
       FxKind.grain => (l.grainOn, l.grainAmount),
@@ -1166,6 +1245,10 @@ class _EditorScreenState extends State<EditorScreen> {
           final look = _editLook(d);
           set(look, v / 100);
           switch (k) {
+            case FxKind.grade:
+              look.gradeOn = true;
+            case FxKind.flash:
+              look.flashOn = true;
             case FxKind.halation:
               look.halOn = true;
             case FxKind.mist:
@@ -1182,6 +1265,10 @@ class _EditorScreenState extends State<EditorScreen> {
     void toggle(bool v) => store.edit((d) {
       final look = _editLook(d);
       switch (k) {
+        case FxKind.grade:
+          look.gradeOn = v;
+        case FxKind.flash:
+          look.flashOn = v;
         case FxKind.halation:
           look.halOn = v;
         case FxKind.mist:
@@ -1228,6 +1315,16 @@ class _EditorScreenState extends State<EditorScreen> {
         ],
       ),
       ...switch (k) {
+        FxKind.grade => [
+          _gradeStyles(l),
+          slider('Stärke', l.gradeAmount, (l, v) => l.gradeAmount = v),
+        ],
+        FxKind.flash => [
+          slider('Stärke', l.flashAmount, (l, v) => l.flashAmount = v),
+          slider('Abfall', l.flashFalloff, (l, v) => l.flashFalloff = v),
+          slider('Höhe', l.flashHeight, (l, v) => l.flashHeight = v),
+          slider('Kühle', l.flashCool, (l, v) => l.flashCool = v),
+        ],
         FxKind.halation => [
           slider('Stärke', l.halAmount, (l, v) => l.halAmount = v),
           slider('Radius', l.halRadius, (l, v) => l.halRadius = v),
@@ -1251,6 +1348,47 @@ class _EditorScreenState extends State<EditorScreen> {
         ],
       },
     ];
+  }
+
+  /// Auswahl der Film Farben als Knöpfe.
+  Widget _gradeStyles(FilmLook l) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Row(
+        children: [
+          for (var i = 0; i < kGradeNames.length; i++) ...[
+            if (i > 0) const SizedBox(width: 6),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => store.edit((d) {
+                  _editLook(d)
+                    ..gradeOn = true
+                    ..gradeStyle = i;
+                }),
+                child: Container(
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: l.gradeOn && l.gradeStyle == i ? AppColors.accent : AppColors.line,
+                    ),
+                  ),
+                  child: Text(
+                    kGradeNames[i],
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: l.gradeOn && l.gradeStyle == i ? AppColors.text : AppColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   /// Feste Stufen wie bei echten Black Mist Filtern (Stärke, Weichheit, Schatten).
@@ -1349,7 +1487,7 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Fotos landen in freien Feldern, bei Bedarf kommen neue dazu (max. 12). '
+          'Fotos landen in freien Feldern, bei Bedarf kommen neue dazu (max. 20). '
           'Leeres Feld antippen: mehrere Fotos ab dort. Foto halten: tauschen. Foto antippen: zuschneiden.',
           style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),

@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 /// Maximale Anzahl Felder in einer Collage.
-const int kMaxSlots = 12;
+const int kMaxSlots = 20;
 
 /// Seitenverhältnisse der Leinwand.
 enum AspectFormat {
@@ -60,7 +60,20 @@ class FilmLook {
   double vigAmount = 0.4;
   double vigSoftness = 0.6;
 
-  bool get active => halOn || mistOn || grainOn || vigOn;
+  /// Blitz: wie ein direkter Aufsteckblitz (helle Mitte, harter Kontrast,
+  /// dunkler Hintergrund, leicht kühl).
+  bool flashOn = false;
+  double flashAmount = 0.6;
+  double flashFalloff = 0.5;
+  double flashHeight = 0.4;
+  double flashCool = 0.4;
+
+  /// Film Farben: Farbstil aus [kGradeNames] mit Stärke.
+  bool gradeOn = false;
+  int gradeStyle = 0;
+  double gradeAmount = 0.7;
+
+  bool get active => halOn || mistOn || grainOn || vigOn || flashOn || gradeOn;
 
   FilmLook copy() => FilmLook()
     ..halOn = halOn
@@ -78,8 +91,22 @@ class FilmLook {
     ..grainColor = grainColor
     ..vigOn = vigOn
     ..vigAmount = vigAmount
-    ..vigSoftness = vigSoftness;
+    ..vigSoftness = vigSoftness
+    ..flashOn = flashOn
+    ..flashAmount = flashAmount
+    ..flashFalloff = flashFalloff
+    ..flashHeight = flashHeight
+    ..flashCool = flashCool
+    ..gradeOn = gradeOn
+    ..gradeStyle = gradeStyle
+    ..gradeAmount = gradeAmount;
 }
+
+/// Namen der Film Farben (eigene Stile, keine Nachbauten).
+const kGradeNames = ['Warm', 'Kühl', 'Blass', 'Kino', 'S/W'];
+
+/// Karussell Aufteilung.
+enum CarouselSplit { flow, perSlide, bridge }
 
 /// Formate, die im Karussell als einzelne Slide möglich sind.
 const kSlideFormats = [
@@ -131,6 +158,7 @@ class Design {
   bool carousel = false;
   int slides = 3;
   AspectFormat slideFormat = AspectFormat.portrait;
+  CarouselSplit split = CarouselSplit.flow;
   FilmLook look = FilmLook();
 
   /// Rand, Ecken und Abstand in Einheiten von Leinwandbreite / 400.
@@ -145,9 +173,21 @@ class Design {
   List<Rect>? _custom;
   String? _customKey;
 
-  String get _layoutKey => mode == LayoutMode.bento
-      ? 'b$frames-$bentoSeed-${canvasRatio.toStringAsFixed(3)}'
-      : 'g$frames-$columns';
+  String get _layoutKey {
+    final base = mode == LayoutMode.bento
+        ? 'b$frames-$bentoSeed-${canvasRatio.toStringAsFixed(3)}'
+        : 'g$frames-$columns';
+    return carousel ? '$base-c$slides-${split.name}' : base;
+  }
+
+  /// Mindestzahl Felder, die eine Karussell Aufteilung braucht.
+  int get minFramesForSplit => !carousel
+      ? 1
+      : switch (split) {
+          CarouselSplit.flow => 1,
+          CarouselSplit.perSlide => slides,
+          CarouselSplit.bridge => 2 * slides - 1,
+        };
 
   bool get hasCustomLayout => _custom != null && _customKey == _layoutKey;
 
@@ -165,6 +205,7 @@ class Design {
     ..carousel = carousel
     ..slides = slides
     ..slideFormat = slideFormat
+    ..split = split
     ..look = look.copy()
     ..border = border
     ..corners = corners
@@ -177,10 +218,70 @@ class Design {
   /// Felder als Anteile der Innenfläche.
   List<Rect> get normalizedRects {
     if (hasCustomLayout) return _custom!;
+    if (carousel && split != CarouselSplit.flow) return _splitRects();
     if (mode == LayoutMode.bento) {
       return bentoRects(frames, bentoSeed, canvasRatio);
     }
     return gridRects(frames, columns);
+  }
+
+  /// Karussell: Leinwand in Abschnitte teilen und jeden Abschnitt eigen füllen.
+  /// "Pro Slide": jede Slide für sich. "Brücke": an jeder Slide Kante ein Foto,
+  /// das über beide Slides läuft (Wischen wirkt nahtlos).
+  List<Rect> _splitRects() {
+    final n = slides;
+    final sw = 1 / n;
+    final segments = <(double, double)>[];
+    final bridges = <Rect>[];
+    if (split == CarouselSplit.perSlide) {
+      for (var k = 0; k < n; k++) {
+        segments.add((k * sw, (k + 1) * sw));
+      }
+    } else {
+      final half = sw * 0.25; // Brücke ist eine halbe Slide breit
+      var x = 0.0;
+      for (var k = 1; k < n; k++) {
+        final b0 = k * sw - half, b1 = k * sw + half;
+        segments.add((x, b0));
+        bridges.add(Rect.fromLTRB(b0, 0, b1, 1));
+        x = b1;
+      }
+      segments.add((x, 1));
+    }
+    // Restliche Felder nach Breite auf die Abschnitte verteilen.
+    final rest = math.max(frames - bridges.length, segments.length);
+    final counts = List<int>.filled(segments.length, 1);
+    var left = rest - segments.length;
+    while (left > 0) {
+      var bi = 0;
+      var best = -1.0;
+      for (var i = 0; i < segments.length; i++) {
+        final w = segments[i].$2 - segments[i].$1;
+        final score = w / counts[i];
+        if (score > best) {
+          best = score;
+          bi = i;
+        }
+      }
+      counts[bi]++;
+      left--;
+    }
+    final rects = <Rect>[...bridges];
+    for (var i = 0; i < segments.length; i++) {
+      final (x0, x1) = segments[i];
+      final w = x1 - x0;
+      final local = mode == LayoutMode.bento
+          ? bentoRects(counts[i], bentoSeed + i * 31, canvasRatio * w)
+          : gridRects(counts[i], math.min(columns, counts[i]));
+      for (final r in local) {
+        rects.add(Rect.fromLTRB(x0 + r.left * w, r.top, x0 + r.right * w, r.bottom));
+      }
+    }
+    rects.sort((a, b) {
+      if ((a.left - b.left).abs() > 0.001) return a.left.compareTo(b.left);
+      return a.top.compareTo(b.top);
+    });
+    return rects;
   }
 
   int get visibleCount => normalizedRects.length;

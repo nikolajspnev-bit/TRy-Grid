@@ -85,13 +85,16 @@ void paintCollage(
       );
       final dim = preview && dragFrom == i;
       if (dim) canvas.saveLayer(f, Paint()..color = const Color(0x66FFFFFF));
+      final look = original ? null : (slot.look ?? d.look);
+      final matrix = look == null ? null : _baseMatrix(look);
       canvas.drawImageRect(
         img,
         src,
         dst,
-        Paint()..filterQuality = FilterQuality.high,
+        Paint()
+          ..filterQuality = FilterQuality.high
+          ..colorFilter = matrix == null ? null : ColorFilter.matrix(matrix),
       );
-      final look = original ? null : (slot.look ?? d.look);
       if (look != null && look.active) {
         _paintLook(canvas, img, src, dst, f, look, unit);
       }
@@ -188,6 +191,44 @@ void _paintLook(
     }
   }
 
+  // Blitz: heller Lichtfleck auf dem Motiv, Licht fällt nach hinten schnell ab.
+  if (look.flashOn && look.flashAmount > 0) {
+    final a = look.flashAmount;
+    final c = Offset(cell.center.dx, cell.top + cell.height * (0.2 + look.flashHeight * 0.5));
+    final diag = math.sqrt(cell.width * cell.width + cell.height * cell.height);
+    final reach = diag * (0.75 - look.flashFalloff * 0.4);
+    // Lichtfleck: aufhellen mit Ineinanderkopieren (macht auch härter).
+    canvas.drawRect(
+      cell,
+      Paint()
+        ..blendMode = BlendMode.overlay
+        ..shader = ui.Gradient.radial(
+          c,
+          reach * 0.7,
+          [
+            Color.fromRGBO(255, 255, 255, (0.8 * a).clamp(0, 1)),
+            const Color.fromRGBO(255, 255, 255, 0),
+          ],
+        ),
+    );
+    // Abfall: alles außerhalb wird dunkel, wie bei Blitz in der Nacht.
+    canvas.drawRect(
+      cell,
+      Paint()
+        ..blendMode = BlendMode.multiply
+        ..shader = ui.Gradient.radial(
+          c,
+          reach,
+          [
+            const Color(0xFFFFFFFF),
+            const Color(0xFFFFFFFF),
+            Color.lerp(const Color(0xFFFFFFFF), const Color(0xFF0A0A0C), (0.85 * a).clamp(0, 1))!,
+          ],
+          [0, 0.35, 1],
+        ),
+    );
+  }
+
   // Vignette: Ränder des Fotos abdunkeln.
   if (look.vigOn && look.vigAmount > 0) {
     final inner = (0.75 - look.vigSoftness * 0.55).clamp(0.05, 0.9);
@@ -231,6 +272,80 @@ void _paintLook(
   }
 }
 
+// Farbmatrizen (4 × 5, wie ColorFilter.matrix).
+const _identity = <double>[1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+
+List<double> _mix(List<double> m, double t) => [
+  for (var i = 0; i < 20; i++) _identity[i] + (m[i] - _identity[i]) * t,
+];
+
+/// Erst [a], dann [b] anwenden.
+List<double> _then(List<double> a, List<double> b) {
+  final out = List<double>.filled(20, 0);
+  for (var r = 0; r < 4; r++) {
+    for (var c = 0; c < 5; c++) {
+      var v = 0.0;
+      for (var k = 0; k < 4; k++) {
+        v += b[r * 5 + k] * a[k * 5 + c];
+      }
+      if (c == 4) v += b[r * 5 + 4];
+      out[r * 5 + c] = v;
+    }
+  }
+  return out;
+}
+
+List<double> _saturation(double s) {
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final i = 1 - s;
+  return [
+    lr * i + s, lg * i, lb * i, 0, 0,
+    lr * i, lg * i + s, lb * i, 0, 0,
+    lr * i, lg * i, lb * i + s, 0, 0,
+    0, 0, 0, 1, 0,
+  ];
+}
+
+List<double> _contrast(double c, {double lift = 0}) {
+  final o = 128 * (1 - c) + lift;
+  return [c, 0, 0, 0, o, 0, c, 0, 0, o, 0, 0, c, 0, o, 0, 0, 0, 1, 0];
+}
+
+List<double> _channels(double r, double g, double b, {double ro = 0, double go = 0, double bo = 0}) =>
+    [r, 0, 0, 0, ro, 0, g, 0, 0, go, 0, 0, b, 0, bo, 0, 0, 0, 1, 0];
+
+/// Eigene Farbstile für "Film Farben".
+List<double> _grade(int style) => switch (style) {
+  // Warm: goldene Lichter, etwas weniger Blau.
+  0 => _then(_channels(1.07, 1.0, 0.86, ro: 6, go: 2, bo: -2), _saturation(0.95)),
+  // Kühl: blaue Schatten, klare Lichter.
+  1 => _then(_channels(0.92, 1.0, 1.08, go: 2, bo: 10), _saturation(0.92)),
+  // Blass: flacher Kontrast, angehobene Schwärzen, wenig Sättigung.
+  2 => _then(_contrast(0.78, lift: 18), _then(_saturation(0.75), _channels(1.02, 1.0, 0.97))),
+  // Kino: mehr Kontrast, warme Haut, kühle Tiefen.
+  3 => _then(_contrast(1.12), _then(_channels(1.04, 0.99, 0.94, bo: 12), _saturation(0.9))),
+  // S/W: Schwarzweiß mit etwas Kontrast.
+  _ => _then(_saturation(0), _contrast(1.1)),
+};
+
+/// Farbmatrix für das Grundbild (Film Farben und Blitz Kontrast) oder null.
+List<double>? _baseMatrix(FilmLook look) {
+  List<double>? m;
+  if (look.gradeOn && look.gradeAmount > 0) {
+    m = _mix(_grade(look.gradeStyle), look.gradeAmount);
+  }
+  if (look.flashOn && look.flashAmount > 0) {
+    final a = look.flashAmount;
+    final k = look.flashCool * a;
+    final flash = _then(
+      _contrast(1 + 0.4 * a),
+      _channels(1 - 0.06 * k, 1, 1 + 0.08 * k, bo: 6 * k),
+    );
+    m = m == null ? flash : _then(m, flash);
+  }
+  return m;
+}
+
 void _paintEmpty(Canvas canvas, Rect f, int i) {
   canvas.drawRect(f, Paint()..color = AppColors.empty);
   if (f.width < 30 || f.height < 24) return;
@@ -267,9 +382,13 @@ class CollagePainter extends CustomPainter {
     this.dragFrom,
     this.dragTarget,
     this.activeSeam,
+    this.snapLine,
     this.original = false,
   });
   final Design design;
+
+  /// Eingerastete Position beim Ziehen: wird als orange Hilfslinie gezeigt.
+  final Seam? snapLine;
 
   /// Größe der ganzen Leinwand, wenn nur ein Ausschnitt gezeigt wird (Karussell).
   final Size? fullSize;
@@ -299,9 +418,48 @@ class CollagePainter extends CustomPainter {
       dragTarget: dragTarget,
     );
     if (design.carousel) _paintSlideGuides(canvas, full);
+    if (!mini && design.carousel) _paintSlivers(canvas, full);
+    if (!mini && snapLine != null) _paintSnap(canvas, full, snapLine!);
     if (!mini && dragFrom == null) _paintHandles(canvas, full);
     if (!mini && activeSeam != null) _paintPixelLabels(canvas, full);
     canvas.restore();
+  }
+
+  /// Orange Hilfslinie über die ganze Leinwand, wenn eine Linie einrastet.
+  void _paintSnap(Canvas canvas, Size size, Seam s) {
+    final border = design.border * _unit(size);
+    final full = Seam(vertical: s.vertical, pos: s.pos, start: 0, end: 1);
+    final cs = seamOnCanvas(full, size, border);
+    canvas.drawLine(
+      cs.a,
+      cs.b,
+      Paint()
+        ..color = AppColors.accent
+        ..strokeWidth = 1,
+    );
+  }
+
+  /// Karussell: warnt vor sehr schmalen Streifen an einer Slide Kante.
+  /// Die sehen beim Wischen auf Instagram wie ein Fehler aus.
+  void _paintSlivers(Canvas canvas, Size size) {
+    final u = _unit(size);
+    final frames = cellFrames(design.normalizedRects, size, design.border * u, design.spacing * u);
+    final n = design.slides;
+    final slideW = size.width / n;
+    final limit = slideW * 0.06;
+    final warn = Paint()..color = AppColors.accent.withValues(alpha: 0.45);
+    for (final f in frames) {
+      for (var k = 1; k < n; k++) {
+        final x = slideW * k;
+        if (f.left >= x || f.right <= x) continue;
+        if (x - f.left < limit) {
+          canvas.drawRect(Rect.fromLTRB(f.left, f.top, x, f.bottom), warn);
+        }
+        if (f.right - x < limit) {
+          canvas.drawRect(Rect.fromLTRB(x, f.top, f.right, f.bottom), warn);
+        }
+      }
+    }
   }
 
   /// Karussell: gestrichelte Linien, wo eine Slide endet, plus Nummer.
@@ -437,7 +595,7 @@ class CollagePainter extends CustomPainter {
 
 /// Erstellt die fertigen Bilder als PNG. Eine Collage ergibt ein Bild,
 /// ein Karussell ein Bild pro Slide.
-Future<List<Uint8List>> exportCollage(Design d, {required bool uhd}) async {
+Future<List<Uint8List>> exportCollage(Design d, {required bool uhd, bool overview = false}) async {
   await prepareGrain();
   final size = d.canvasSize(uhd: uhd);
   final slide = d.slideSize(uhd: uhd);
@@ -489,6 +647,21 @@ Future<List<Uint8List>> exportCollage(Design d, {required bool uhd}) async {
       slide.width.toInt(),
       slide.height.toInt(),
     );
+    picture.dispose();
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    results.add(data!.buffer.asUint8List());
+  }
+  // Gesamtbild: alle Slides in einem Bild (z. B. zum Zeigen), max. 4096 px breit.
+  if (d.carousel && overview) {
+    final scale = math.min(1.0, 4096 / size.width);
+    final w = (size.width * scale).round(), h = (size.height * scale).round();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()));
+    canvas.scale(scale);
+    paintCollage(canvas, size, d, imageFor: (i) => images[i]);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(w, h);
     picture.dispose();
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
