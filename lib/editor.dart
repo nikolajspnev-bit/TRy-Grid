@@ -1235,6 +1235,7 @@ class _EditorScreenState extends State<EditorScreen> {
           slider('Wärme', l.halWarmth, (l, v) => l.halWarmth = v),
         ],
         FxKind.mist => [
+          _mistPresets(l),
           slider('Stärke', l.mistAmount, (l, v) => l.mistAmount = v),
           slider('Weichheit', l.mistSoftness, (l, v) => l.mistSoftness = v),
           slider('Schatten', l.mistLift, (l, v) => l.mistLift = v),
@@ -1250,6 +1251,56 @@ class _EditorScreenState extends State<EditorScreen> {
         ],
       },
     ];
+  }
+
+  /// Feste Stufen wie bei echten Black Mist Filtern (Stärke, Weichheit, Schatten).
+  static const _mistSteps = [
+    ('1/8', 0.20, 0.35, 0.15),
+    ('1/4', 0.35, 0.45, 0.25),
+    ('1/2', 0.55, 0.60, 0.40),
+    ('1', 0.80, 0.75, 0.60),
+  ];
+
+  Widget _mistPresets(FilmLook l) {
+    bool near(double a, double b) => (a - b).abs() < 0.005;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Row(
+        children: [
+          for (final (name, amount, soft, lift) in _mistSteps) ...[
+            if (name != '1/8') const SizedBox(width: 8),
+            Expanded(
+              child: Builder(builder: (context) {
+                final on = l.mistOn && near(l.mistAmount, amount) && near(l.mistSoftness, soft) && near(l.mistLift, lift);
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => store.edit((d) {
+                    final look = _editLook(d);
+                    look
+                      ..mistOn = true
+                      ..mistAmount = amount
+                      ..mistSoftness = soft
+                      ..mistLift = lift;
+                  }),
+                  child: Container(
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: on ? AppColors.accent : AppColors.line),
+                    ),
+                    child: Text(
+                      name,
+                      style: TextStyle(fontSize: 12, color: on ? AppColors.text : AppColors.muted),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _holdOriginal() {
