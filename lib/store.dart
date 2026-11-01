@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'drafts.dart';
 import 'models.dart';
 
 /// Hält die Collage und den Verlauf für Rückgängig / Wiederholen.
@@ -14,6 +16,76 @@ class CollageStore extends ChangeNotifier {
 
   final List<Design> _undo = [];
   final List<Design> _redo = [];
+
+  /// Kennung in "Meine Collagen" (null = noch nie gespeichert).
+  String? draftId;
+  Timer? _saveTimer;
+  Future<void>? _saving;
+  bool _dirty = false;
+
+  /// Jede Änderung wird nach kurzer Pause automatisch gespeichert.
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _dirty = true;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(seconds: 2), saveNow);
+  }
+
+  /// Sofort speichern (z. B. bevor "Meine Collagen" geöffnet wird).
+  Future<void> saveNow() async {
+    _saveTimer?.cancel();
+    while (_saving != null) {
+      await _saving;
+    }
+    if (!_dirty || !hasPhotos) return;
+    _dirty = false;
+    final snapshot = design.clone();
+    final f = Drafts.instance.save(snapshot, title, draftId).then((id) => draftId = id);
+    _saving = f;
+    try {
+      await f;
+    } catch (e) {
+      debugPrint('Speichern fehlgeschlagen: $e');
+    } finally {
+      _saving = null;
+    }
+  }
+
+  void _reset(Design d, String t, String? id) {
+    _saveTimer?.cancel();
+    design = d;
+    title = t;
+    draftId = id;
+    _undo.clear();
+    _redo.clear();
+    super.notifyListeners();
+    _dirty = false;
+  }
+
+  /// Neue, leere Collage (die alte ist dann schon gespeichert).
+  Future<void> newCollage() async {
+    await saveNow();
+    _reset(Design(), 'Neue Collage', null);
+  }
+
+  /// Die gerade offene Collage wurde gelöscht: leer neu anfangen, ohne zu speichern.
+  void forgetCurrent() => _reset(Design(), 'Neue Collage', null);
+
+  /// Gespeicherte Collage öffnen.
+  Future<bool> openDraft(String id) async {
+    await saveNow();
+    loading = true;
+    super.notifyListeners();
+    final r = await Drafts.instance.open(id);
+    loading = false;
+    if (r == null) {
+      super.notifyListeners();
+      return false;
+    }
+    _reset(r.$1, r.$2, id);
+    return true;
+  }
 
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;

@@ -102,6 +102,50 @@ class FilmLook {
     ..gradeAmount = gradeAmount;
 }
 
+extension FilmLookJson on FilmLook {
+  Map<String, dynamic> toJson() => {
+    'halOn': halOn, 'halAmount': halAmount, 'halRadius': halRadius,
+    'halThreshold': halThreshold, 'halWarmth': halWarmth,
+    'mistOn': mistOn, 'mistAmount': mistAmount, 'mistSoftness': mistSoftness, 'mistLift': mistLift,
+    'grainOn': grainOn, 'grainAmount': grainAmount, 'grainSize': grainSize, 'grainColor': grainColor,
+    'vigOn': vigOn, 'vigAmount': vigAmount, 'vigSoftness': vigSoftness,
+    'flashOn': flashOn, 'flashAmount': flashAmount, 'flashFalloff': flashFalloff,
+    'flashHeight': flashHeight, 'flashCool': flashCool,
+    'gradeOn': gradeOn, 'gradeStyle': gradeStyle, 'gradeAmount': gradeAmount,
+  };
+}
+
+FilmLook filmLookFromJson(Map<String, dynamic> j) {
+  final l = FilmLook();
+  bool b(String k, bool d) => j[k] is bool ? j[k] as bool : d;
+  double n(String k, double d) => j[k] is num ? (j[k] as num).toDouble() : d;
+  return l
+    ..halOn = b('halOn', l.halOn)
+    ..halAmount = n('halAmount', l.halAmount)
+    ..halRadius = n('halRadius', l.halRadius)
+    ..halThreshold = n('halThreshold', l.halThreshold)
+    ..halWarmth = n('halWarmth', l.halWarmth)
+    ..mistOn = b('mistOn', l.mistOn)
+    ..mistAmount = n('mistAmount', l.mistAmount)
+    ..mistSoftness = n('mistSoftness', l.mistSoftness)
+    ..mistLift = n('mistLift', l.mistLift)
+    ..grainOn = b('grainOn', l.grainOn)
+    ..grainAmount = n('grainAmount', l.grainAmount)
+    ..grainSize = n('grainSize', l.grainSize)
+    ..grainColor = n('grainColor', l.grainColor)
+    ..vigOn = b('vigOn', l.vigOn)
+    ..vigAmount = n('vigAmount', l.vigAmount)
+    ..vigSoftness = n('vigSoftness', l.vigSoftness)
+    ..flashOn = b('flashOn', l.flashOn)
+    ..flashAmount = n('flashAmount', l.flashAmount)
+    ..flashFalloff = n('flashFalloff', l.flashFalloff)
+    ..flashHeight = n('flashHeight', l.flashHeight)
+    ..flashCool = n('flashCool', l.flashCool)
+    ..gradeOn = b('gradeOn', l.gradeOn)
+    ..gradeStyle = j['gradeStyle'] is int ? j['gradeStyle'] as int : l.gradeStyle
+    ..gradeAmount = n('gradeAmount', l.gradeAmount);
+}
+
 /// Namen der Film Farben (eigene Stile, keine Nachbauten).
 const kGradeNames = ['Warm', 'Kühl', 'Blass', 'Kino', 'S/W'];
 
@@ -126,6 +170,20 @@ class Photo {
 
   double get width => preview.width.toDouble();
   double get height => preview.height.toDouble();
+
+  /// Kennung aus dem Inhalt, damit gleiche Fotos nur einmal gespeichert werden.
+  late final String key = _fingerprint(bytes);
+}
+
+String _fingerprint(Uint8List b) {
+  var h = 0x811c9dc5;
+  // Bei großen Dateien reicht jedes vierte Byte, das ist deutlich schneller.
+  final step = b.length > 2000000 ? 4 : 1;
+  for (var i = 0; i < b.length; i += step) {
+    h ^= b[i];
+    h = (h * 0x01000193) & 0xFFFFFFFF;
+  }
+  return '${b.length.toRadixString(16)}-${h.toRadixString(16)}';
 }
 
 /// Ein belegtes Feld: Foto plus Zuschnitt.
@@ -214,6 +272,93 @@ class Design {
     ..slots = slots.map((s) => s?.copy()).toList()
     .._custom = _custom
     .._customKey = _customKey;
+
+  /// Speichern: alles außer den Fotos selbst (die kommen über [Photo.key]).
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'format': format.name,
+    'mode': mode.name,
+    'frames': frames,
+    'columns': columns,
+    'bentoSeed': bentoSeed,
+    'carousel': carousel,
+    'slides': slides,
+    'slideFormat': slideFormat.name,
+    'split': split.name,
+    'look': look.toJson(),
+    'border': border,
+    'corners': corners,
+    'spacing': spacing,
+    'background': background.toARGB32(),
+    'slots': [
+      for (final s in slots)
+        s == null
+            ? null
+            : {
+                'photo': s.photo.key,
+                'zoom': s.zoom,
+                'offsetX': s.offsetX,
+                'offsetY': s.offsetY,
+                if (s.look != null) 'look': s.look!.toJson(),
+              },
+    ],
+    if (_custom != null)
+      'custom': [for (final r in _custom!) [r.left, r.top, r.right, r.bottom]],
+    if (_customKey != null) 'customKey': _customKey,
+  };
+
+  static Design fromJson(Map<String, dynamic> j, Map<String, Photo> photos) {
+    T pick<T extends Enum>(List<T> values, Object? name, T d) =>
+        values.firstWhere((v) => v.name == name, orElse: () => d);
+    double n(String k, double d) => j[k] is num ? (j[k] as num).toDouble() : d;
+    final d = Design()
+      ..format = pick(AspectFormat.values, j['format'], AspectFormat.story)
+      ..mode = pick(LayoutMode.values, j['mode'], LayoutMode.grid)
+      ..frames = (j['frames'] as num?)?.toInt() ?? 4
+      ..columns = (j['columns'] as num?)?.toInt() ?? 2
+      ..bentoSeed = (j['bentoSeed'] as num?)?.toInt() ?? 1
+      ..carousel = j['carousel'] == true
+      ..slides = (j['slides'] as num?)?.toInt() ?? 3
+      ..slideFormat = pick(AspectFormat.values, j['slideFormat'], AspectFormat.portrait)
+      ..split = pick(CarouselSplit.values, j['split'], CarouselSplit.flow)
+      ..border = n('border', 0)
+      ..corners = n('corners', 0)
+      ..spacing = n('spacing', 0)
+      ..background = Color((j['background'] as num?)?.toInt() ?? 0xFF000000);
+    if (j['look'] is Map) d.look = filmLookFromJson((j['look'] as Map).cast<String, dynamic>());
+    final list = (j['slots'] as List?) ?? const [];
+    for (var i = 0; i < list.length && i < kMaxSlots; i++) {
+      final s = list[i];
+      if (s is! Map) continue;
+      final photo = photos[s['photo']];
+      if (photo == null) continue;
+      d.slots[i] = Slot(
+        photo,
+        zoom: (s['zoom'] as num?)?.toDouble() ?? 1,
+        offsetX: (s['offsetX'] as num?)?.toDouble() ?? 0,
+        offsetY: (s['offsetY'] as num?)?.toDouble() ?? 0,
+      )..look = s['look'] is Map ? filmLookFromJson((s['look'] as Map).cast<String, dynamic>()) : null;
+    }
+    if (j['custom'] is List) {
+      d._custom = [
+        for (final r in j['custom'] as List)
+          Rect.fromLTRB(
+            (r[0] as num).toDouble(),
+            (r[1] as num).toDouble(),
+            (r[2] as num).toDouble(),
+            (r[3] as num).toDouble(),
+          ),
+      ];
+      d._customKey = j['customKey'] as String?;
+    }
+    return d;
+  }
+
+  /// Alle Foto Kennungen, die in dieser Collage stecken.
+  static Set<String> photoKeysIn(Map<String, dynamic> j) => {
+    for (final s in (j['slots'] as List?) ?? const [])
+      if (s is Map && s['photo'] is String) s['photo'] as String,
+  };
 
   /// Felder als Anteile der Innenfläche.
   List<Rect> get normalizedRects {

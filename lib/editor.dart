@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'color_picker.dart';
 import 'crop.dart';
+import 'drafts_screen.dart';
 import 'export.dart';
 import 'models.dart';
 import 'painter.dart';
@@ -86,6 +87,24 @@ class _EditorScreenState extends State<EditorScreen> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
       child: Row(
         children: [
+          // Meine Collagen
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => DraftsScreen(store: store)),
+            ),
+            child: Container(
+              width: 32,
+              height: 32,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: const Icon(Icons.collections_outlined, size: 16),
+            ),
+          ),
           // Format als umrandeter Chip.
           GestureDetector(
             behavior: HitTestBehavior.opaque,

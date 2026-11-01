@@ -35,39 +35,47 @@ Eine App, ein Code, läuft auf iPhone und Android.
 
 Mit kostenloser Apple ID läuft die App 7 Tage. Danach einfach Schritt 4 und 6 wiederholen.
 
-## Teil 3: App an Android Freunde geben
+## Teil 3: Android App (gratis, ohne Android Studio)
 
-1. **Android Studio** laden und installieren: developer.android.com/studio
-   Einmal öffnen und den Einrichtungs Assistenten mit "Next" durchklicken. Danach kannst du es schließen.
-2. In VS Code im Terminal eintippen:
-   ```
-   flutter doctor --android-licenses
-   ```
-   Jede Frage mit `y` und Enter bestätigen.
-3. Dann:
-   ```
-   flutter build apk
-   ```
-4. Fertige Datei: **TRy-Grid-main/build/app/outputs/flutter-apk/app-release.apk**
-   Die schickst du deinem Freund, zum Beispiel per WhatsApp, Mail oder Google Drive.
-   Er tippt die Datei an und erlaubt einmal "Apps aus dieser Quelle installieren".
+GitHub baut die App nach jedem Update automatisch. Du musst nichts installieren.
 
-Später im Play Store: einmalig 25 $ für ein Google Entwicklerkonto.
+1. Auf dem Android Handy diesen Link öffnen:
+   https://github.com/nikolajspnev-bit/TRy-Grid/releases/latest/download/TRy-Grid.apk
+2. Die Datei **TRy-Grid.apk** antippen.
+3. Beim ersten Mal **Apps aus dieser Quelle installieren** erlauben.
+4. Fertig. Den Link kannst du einfach an Freunde schicken.
 
-## Teil 4: App an iPhone Freunde geben (TestFlight)
+**Einmalig wichtig:** Trag den App Schlüssel in GitHub ein (Datei **android_schluessel/GitHub_Secrets.md** in den Projektdateien, 4 Felder kopieren). Sonst müssen Freunde die App vor jedem Update löschen und verlieren dabei ihre gespeicherten Collagen.
 
-Das geht nur mit dem **Apple Developer Programm (99 $ im Jahr)**: developer.apple.com/programs
-Die Freischaltung dauert manchmal 1 bis 2 Tage. Sag Bescheid, sobald du drin bist, dann gehen wir TestFlight Schritt für Schritt zusammen durch. Deine Freunde laden dann nur die App "TestFlight" und tippen auf deinen Einladungslink.
+## Teil 4: iPhone Freunde (TestFlight, 99 € im Jahr)
+
+**Vorher:** Apple Developer Programm abschließen: developer.apple.com/programs (Freischaltung dauert oft 1 bis 2 Tage).
+
+1. Auf **appstoreconnect.apple.com** > **Apps** > **+** > **Neue App**.
+   Name: TRy Grid. Sprache: Deutsch. Bundle ID: **de.trymedia.tryCollage** auswählen (falls sie fehlt, erst auf developer.apple.com unter Identifiers anlegen). SKU: trygrid.
+2. Am Mac den Ordner **TRy-Grid-main** in VS Code öffnen und im Terminal eintippen:
+   ```
+   flutter build ipa
+   ```
+3. Danach **ios/Runner.xcworkspace** in Xcode öffnen. Oben im Menü **Product > Archive**.
+4. Im Fenster das kommt: **Distribute App** > **TestFlight & App Store** > **Distribute**. Warten (ca. 10 bis 30 Minuten, bis Apple den Build verarbeitet hat).
+5. In App Store Connect bei deiner App auf **TestFlight**.
+   Links bei **Externe Tests** eine Gruppe anlegen, den Build hinzufügen und **Öffentlichen Link** einschalten.
+   Beim ersten Mal prüft Apple den Build kurz (meist unter einem Tag).
+6. Den Link schickst du Freunden. Sie laden die App **TestFlight** und tippen auf den Link.
+
+Ein Build läuft nach 90 Tagen ab. Für ein Update: in **pubspec.yaml** die Zahl hinter dem + erhöhen (zum Beispiel 1.0.0+2), dann Schritt 2 bis 5 wiederholen.
 
 ## So benutzt du die App
 
-- **Leeres Feld antippen:** Foto wählen. Oder unten bei **Fotos** mehrere auf einmal hinzufügen.
+- **Leeres Feld antippen:** mehrere Fotos wählen, sie füllen ab diesem Feld auf.
 - **Foto antippen:** zoomen und verschieben, ersetzen oder entfernen.
 - **Foto gedrückt halten und ziehen:** mit einem anderen Feld tauschen.
-- Oben links **Format** wählen (9:16, 4:5, 1:1 und mehr).
-- **Layout:** Raster (Felder und Spalten) oder Bento (feste Mischungen aus groß und klein).
-- **Stil:** Rand, Ecken, Abstand, Hintergrundfarbe.
-- Oben rechts **Exportieren:** Größe wählen, dann "In Fotos sichern" oder "Teilen".
+- **Linien ziehen:** Felder größer oder kleiner machen. Sie rasten an Drittel, Hälfte und Slide Kanten ein.
+- Oben links **Meine Collagen:** alles wird automatisch gespeichert. Antippen öffnet, Mülleimer löscht, **Neu** startet eine leere Collage.
+- **Format:** Collage oder Karussell (mit Aufteilung Durchlaufend, Pro Slide, Brücke).
+- **LOOK:** Film Farben, Blitz, Halation, Black Mist, Körnung, Vignette. Für alle Fotos oder einzeln.
+- **Export:** 1080p oder 4K, beim Karussell auf Wunsch mit Gesamtbild.
 
 ## Wenn etwas nicht klappt
 

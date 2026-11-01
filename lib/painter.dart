@@ -672,3 +672,19 @@ Future<List<Uint8List>> exportCollage(Design d, {required bool uhd, bool overvie
   }
   return results;
 }
+
+/// Kleines Vorschaubild (PNG) für "Meine Collagen", aus den Vorschau Fotos.
+Future<Uint8List> renderThumb(Design d, {double longSide = 480}) async {
+  await prepareGrain();
+  final ratio = d.canvasRatio;
+  final size = ratio >= 1 ? Size(longSide, longSide / ratio) : Size(longSide * ratio, longSide);
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder, Offset.zero & size);
+  paintCollage(canvas, size, d, imageFor: (i) => d.slots[i]?.photo.preview);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(size.width.round(), size.height.round());
+  picture.dispose();
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return data!.buffer.asUint8List();
+}
