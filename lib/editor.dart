@@ -14,7 +14,7 @@ import 'widgets.dart';
 
 enum PanelTab { design, fx, photos }
 
-enum FxKind { grade, flash, halation, mist, grain, vignette }
+enum FxKind { grade, flash, anamorph, halation, mist, grain, vignette }
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, required this.store});
@@ -1167,6 +1167,7 @@ class _EditorScreenState extends State<EditorScreen> {
   String _fxName(FxKind k) => switch (k) {
     FxKind.grade => 'Film Farben',
     FxKind.flash => 'Blitz',
+    FxKind.anamorph => 'Anamorph',
     FxKind.halation => 'Halation',
     FxKind.mist => 'Black Mist',
     FxKind.grain => 'Körnung',
@@ -1176,6 +1177,7 @@ class _EditorScreenState extends State<EditorScreen> {
   IconData _fxIcon(FxKind k) => switch (k) {
     FxKind.grade => Icons.palette_outlined,
     FxKind.flash => Icons.flash_on_outlined,
+    FxKind.anamorph => Icons.flare,
     FxKind.halation => Icons.wb_sunny_outlined,
     FxKind.mist => Icons.blur_on,
     FxKind.grain => Icons.grain,
@@ -1187,6 +1189,7 @@ class _EditorScreenState extends State<EditorScreen> {
     return switch (k) {
       FxKind.grade => (l.gradeOn, l.gradeAmount),
       FxKind.flash => (l.flashOn, l.flashAmount),
+      FxKind.anamorph => (l.anaOn, l.anaAmount),
       FxKind.halation => (l.halOn, l.halAmount),
       FxKind.mist => (l.mistOn, l.mistAmount),
       FxKind.grain => (l.grainOn, l.grainAmount),
@@ -1271,6 +1274,8 @@ class _EditorScreenState extends State<EditorScreen> {
               look.gradeOn = true;
             case FxKind.flash:
               look.flashOn = true;
+            case FxKind.anamorph:
+              look.anaOn = true;
             case FxKind.halation:
               look.halOn = true;
             case FxKind.mist:
@@ -1291,6 +1296,8 @@ class _EditorScreenState extends State<EditorScreen> {
           look.gradeOn = v;
         case FxKind.flash:
           look.flashOn = v;
+        case FxKind.anamorph:
+          look.anaOn = v;
         case FxKind.halation:
           look.halOn = v;
         case FxKind.mist:
@@ -1347,6 +1354,13 @@ class _EditorScreenState extends State<EditorScreen> {
           slider('Höhe', l.flashHeight, (l, v) => l.flashHeight = v),
           slider('Kühle', l.flashCool, (l, v) => l.flashCool = v),
         ],
+        FxKind.anamorph => [
+          _anaColors(l),
+          slider('Stärke', l.anaAmount, (l, v) => l.anaAmount = v),
+          slider('Länge', l.anaLength, (l, v) => l.anaLength = v),
+          slider('Schwelle', l.anaThreshold, (l, v) => l.anaThreshold = v),
+          slider('Dicke', l.anaThickness, (l, v) => l.anaThickness = v),
+        ],
         FxKind.halation => [
           slider('Stärke', l.halAmount, (l, v) => l.halAmount = v),
           slider('Radius', l.halRadius, (l, v) => l.halRadius = v),
@@ -1370,6 +1384,49 @@ class _EditorScreenState extends State<EditorScreen> {
         ],
       },
     ];
+  }
+
+  /// Farbe der Anamorph Streifen.
+  Widget _anaColors(FilmLook l) {
+    const swatch = [Color(0xFF4F9EFF), Color(0xFFFFB838)];
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Row(
+        children: [
+          for (var i = 0; i < kAnaColorNames.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => store.edit((d) {
+                  _editLook(d)
+                    ..anaOn = true
+                    ..anaColor = i;
+                }),
+                child: Container(
+                  height: 34,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: l.anaColor == i ? AppColors.accent : AppColors.line),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(width: 18, height: 3, color: swatch[i]),
+                      const SizedBox(width: 8),
+                      Text(
+                        kAnaColorNames[i],
+                        style: TextStyle(fontSize: 12, color: l.anaColor == i ? AppColors.text : AppColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   /// Auswahl der Film Farben als Knöpfe.

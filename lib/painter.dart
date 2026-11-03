@@ -197,6 +197,37 @@ void _paintLook(
     }
   }
 
+  // Anamorph: helle Stellen als lange, flache Streifen (nur waagerecht weichgezeichnet).
+  if (look.anaOn && look.anaAmount > 0) {
+    final t = 0.5 + look.anaThreshold * 0.45;
+    final k = 3.0 + look.anaAmount * 3;
+    final (cr, cg, cb) = look.anaColor == 1 ? (1.0, 0.72, 0.22) : (0.3, 0.62, 1.0);
+    List<double> row(double tint) => [
+      0.3 * k * tint,
+      0.59 * k * tint,
+      0.11 * k * tint,
+      0,
+      -k * t * 255 * tint,
+    ];
+    final matrix = <double>[...row(cr), ...row(cg), ...row(cb), 0, 0, 0, 1, 0];
+    final sx = (8 + look.anaLength * 70) * unit;
+    final sy = (0.3 + look.anaThickness * 2.5) * unit;
+    final a = (look.anaAmount * 1.2).clamp(0.0, 1.0);
+    // Kern und weiter Schweif.
+    for (final (x, y, alpha) in [(sx, sy, a), (sx * 2.4, sy * 1.6, a * 0.6)]) {
+      canvas.drawImageRect(
+        img,
+        src,
+        dst,
+        Paint()
+          ..colorFilter = ColorFilter.matrix(matrix)
+          ..imageFilter = ui.ImageFilter.blur(sigmaX: x, sigmaY: y, tileMode: TileMode.decal)
+          ..blendMode = BlendMode.screen
+          ..color = Color.fromRGBO(255, 255, 255, alpha),
+      );
+    }
+  }
+
   // Blitz: heller Lichtfleck auf dem Motiv, Licht fällt nach hinten schnell ab.
   if (look.flashOn && look.flashAmount > 0) {
     final a = look.flashAmount;

@@ -73,7 +73,15 @@ class FilmLook {
   int gradeStyle = 0;
   double gradeAmount = 0.7;
 
-  bool get active => halOn || mistOn || grainOn || vigOn || flashOn || gradeOn;
+  /// Anamorph: lange waagerechte Lichtstreifen an hellen Stellen (blau oder gelb).
+  bool anaOn = false;
+  double anaAmount = 0.6;
+  double anaLength = 0.6;
+  double anaThreshold = 0.55;
+  double anaThickness = 0.3;
+  int anaColor = 0; // 0 = Blau, 1 = Gelb
+
+  bool get active => halOn || mistOn || grainOn || vigOn || flashOn || gradeOn || anaOn;
 
   FilmLook copy() => FilmLook()
     ..halOn = halOn
@@ -99,7 +107,13 @@ class FilmLook {
     ..flashCool = flashCool
     ..gradeOn = gradeOn
     ..gradeStyle = gradeStyle
-    ..gradeAmount = gradeAmount;
+    ..gradeAmount = gradeAmount
+    ..anaOn = anaOn
+    ..anaAmount = anaAmount
+    ..anaLength = anaLength
+    ..anaThreshold = anaThreshold
+    ..anaThickness = anaThickness
+    ..anaColor = anaColor;
 }
 
 extension FilmLookJson on FilmLook {
@@ -112,6 +126,8 @@ extension FilmLookJson on FilmLook {
     'flashOn': flashOn, 'flashAmount': flashAmount, 'flashFalloff': flashFalloff,
     'flashHeight': flashHeight, 'flashCool': flashCool,
     'gradeOn': gradeOn, 'gradeStyle': gradeStyle, 'gradeAmount': gradeAmount,
+    'anaOn': anaOn, 'anaAmount': anaAmount, 'anaLength': anaLength,
+    'anaThreshold': anaThreshold, 'anaThickness': anaThickness, 'anaColor': anaColor,
   };
 }
 
@@ -143,8 +159,17 @@ FilmLook filmLookFromJson(Map<String, dynamic> j) {
     ..flashCool = n('flashCool', l.flashCool)
     ..gradeOn = b('gradeOn', l.gradeOn)
     ..gradeStyle = j['gradeStyle'] is int ? j['gradeStyle'] as int : l.gradeStyle
-    ..gradeAmount = n('gradeAmount', l.gradeAmount);
+    ..gradeAmount = n('gradeAmount', l.gradeAmount)
+    ..anaOn = b('anaOn', l.anaOn)
+    ..anaAmount = n('anaAmount', l.anaAmount)
+    ..anaLength = n('anaLength', l.anaLength)
+    ..anaThreshold = n('anaThreshold', l.anaThreshold)
+    ..anaThickness = n('anaThickness', l.anaThickness)
+    ..anaColor = j['anaColor'] is int ? j['anaColor'] as int : l.anaColor;
 }
+
+/// Farben für Anamorph.
+const kAnaColorNames = ['Blau', 'Gelb'];
 
 /// Namen der Film Farben (eigene Stile, keine Nachbauten).
 const kGradeNames = ['Warm', 'Kühl', 'Blass', 'Kino', 'S/W'];
